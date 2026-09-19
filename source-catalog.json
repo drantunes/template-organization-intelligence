@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "sources": [
+    {
+      "id": "sample",
+      "provider": "local",
+      "mountPath": "/sample",
+      "root": "./sample-documents",
+      "enabled": true,
+      "displayName": "Bundled sample"
+    },
+    {
+      "id": "policies",
+      "provider": "google-drive",
+      "mountPath": "/drive/policies",
+      "folderId": "18Qzhhxd0MSGPHGaxiymXUhq2rS1-BHeb",
+      "credentialRef": "organization",
+      "enabled": true,
+      "displayName": "Organization policies"
+    },
+    {
+      "id": "processes",
+      "provider": "google-drive",
+      "mountPath": "/drive/processes",
+      "folderId": "1Hpb75XtYaMulQr_4aCUqPT0F3trMBnfv",
+      "credentialRef": "organization",
+      "enabled": true,
+      "displayName": "Organization processes"
+    }
+  ]
+}

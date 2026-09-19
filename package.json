@@ -1,0 +1,47 @@
+{
+  "name": "template-organization-intelligence",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=24.19.0 <25"
+  },
+  "packageManager": "pnpm@12.4.1",
+  "scripts": {
+    "format": "oxfmt .",
+    "format:check": "oxfmt --check .",
+    "lint:oxlint": "oxlint --deny-warnings .",
+    "lint:eslint": "eslint --max-warnings 0 .",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:unit": "vitest run --project unit",
+    "test:integration:deterministic": "vitest run --project integration",
+    "build": "mastra build",
+    "check:env": "node --env-file-if-exists=.env scripts/check-env.mjs",
+    "dev": "node --env-file-if-exists=.env scripts/check-env.mjs && mastra dev",
+    "dev:local": "node scripts/bootstrap.mjs",
+    "check": "pnpm format:check && pnpm lint:oxlint && pnpm lint:eslint && pnpm typecheck && pnpm test && pnpm build",
+    "test:integration": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.ts"
+  },
+  "dependencies": {
+    "@mastra/core": "1.67.0",
+    "@mastra/google-drive": "0.2.1",
+    "@mastra/libsql": "1.23.0",
+    "zod": "4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "24.13.4",
+    "@vitest/eslint-plugin": "1.6.27",
+    "eslint": "10.10.0",
+    "eslint-plugin-import-x": "4.17.1",
+    "eslint-plugin-oxlint": "1.83.0",
+    "globals": "17.12.0",
+    "mastra": "1.30.0",
+    "oxfmt": "0.68.0",
+    "oxlint": "1.83.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.70.0",
+    "vitest": "5.0.1"
+  }
+}
