@@ -22,6 +22,7 @@ export function createSourceInspectionWorkflow(runtime: SourceRuntime) {
 
   return createWorkflow({
     id: 'inspect-organization-source',
+    options: { shouldPersistSnapshot: () => false },
     description: 'Reads one configured source record without indexing, generation, or source mutation.',
     inputSchema: inspectionInput,
     outputSchema: inspectionOutput,
