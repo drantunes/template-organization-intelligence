@@ -7,6 +7,8 @@ import type { GoogleDriveFilesystemOptions } from '@mastra/google-drive';
 
 import type { CatalogSource, SourceCatalog } from './catalog.js';
 import { normalizeMountPath, validateCatalog } from './catalog.js';
+import { ScopedDriveReader } from './drive-source.js';
+import type { DriveAccessToken } from './drive-source.js';
 import { validateAndPersistSourceIdentity } from './identity-ledger.js';
 
 const GOOGLE_DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
@@ -27,6 +29,7 @@ export type SourceInspection = {
 export type SourceRuntime = {
   catalog: SourceCatalog;
   workspace: AnyWorkspace;
+  driveReaders: Map<string, ScopedDriveReader>;
   inspect: (sourceId: string, relativePath: string) => Promise<SourceInspection>;
   sourceStatuses: () => Array<Omit<SourceInspection, 'content'>>;
 };
@@ -81,6 +84,8 @@ export async function createSourceRuntime(options: {
   ledgerPath: string;
   environment?: NodeJS.ProcessEnv;
   driveFilesystemFactory?: DriveFilesystemFactory;
+  driveAccessToken?: DriveAccessToken;
+  driveRequest?: typeof fetch;
 }): Promise<SourceRuntime> {
   const environment = options.environment ?? process.env;
   const catalog = freezeCatalog(await validateCatalog(options.catalog, options.catalogPath));
@@ -93,6 +98,9 @@ export async function createSourceRuntime(options: {
   const filesystems = new Map<string, SourceFilesystem>();
   const statuses = new Map<string, SourceStatus>();
   const mounts: Record<string, SourceFilesystem> = {};
+  const driveReaders = new Map<string, ScopedDriveReader>();
+  const getAccessToken =
+    options.driveAccessToken ?? (credentials ? ScopedDriveReader.serviceAccount(credentials) : undefined);
 
   for (const source of enabledSources) {
     const mountPath = normalizeMountPath(source.mountPath);
@@ -114,6 +122,7 @@ export async function createSourceRuntime(options: {
       id: source.id,
       folderId: source.folderId,
       readOnly: true,
+      getAccessToken,
       serviceAccount: credentials
         ? {
             clientEmail: credentials.clientEmail,
@@ -123,6 +132,8 @@ export async function createSourceRuntime(options: {
         : undefined,
     };
     const filesystem = options.driveFilesystemFactory?.(driveOptions) ?? new GoogleDriveFilesystem(driveOptions);
+    if (getAccessToken)
+      driveReaders.set(source.id, new ScopedDriveReader(source.folderId, getAccessToken, options.driveRequest));
     filesystems.set(source.id, filesystem);
     mounts[mountPath] = filesystem;
     if (options.driveFilesystemFactory) {
@@ -146,6 +157,7 @@ export async function createSourceRuntime(options: {
   return {
     catalog,
     workspace,
+    driveReaders,
     sourceStatuses: () =>
       enabledSources.map(source => ({
         sourceId: source.id,

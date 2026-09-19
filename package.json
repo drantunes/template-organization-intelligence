@@ -25,9 +25,14 @@
     "test:integration": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.ts"
   },
   "dependencies": {
+    "@libsql/client": "0.18.0",
     "@mastra/core": "1.67.0",
     "@mastra/google-drive": "0.2.1",
     "@mastra/libsql": "1.23.0",
+    "fast-xml-parser": "5.11.1",
+    "google-auth-library": "11.1.0",
+    "pdfjs-dist": "6.3.289",
+    "yauzl": "3.4.0",
     "zod": "4.6.5"
   },
   "devDependencies": {
