@@ -1,56 +1,89 @@
 # Organization Intelligence
 
-Search institutional records from local folders and Google Drive with source paths, document locators and freshness status. One Mastra workflow indexes records at startup, on demand and every five minutes while the server runs. The Organization Agent returns bounded, source-grounded answers through Studio, a local API route and a read-only MCP query tool.
+Search local folders and Google Drive records as distinct sources, then return an institutional answer with exact citations, source readiness, and freshness. It gives teams a bounded way to ask policy questions without turning the answer path into a document-writing tool.
 
 ## Why we built this
 
-Policies and procedures often live in different repositories. Keeping their source identities distinct is the foundation for answering questions with traceable evidence as those repositories change.
+Policies, procedures, and operational records commonly live in separate folders. Keeping those source identities and locators intact makes it possible to inspect why an answer was returned and to refresh records without treating every folder as one anonymous knowledge base.
 
 ## Prerequisites
 
-- [**OpenAI API key**](https://platform.openai.com/api-keys): set `OPENAI_API_KEY` in `.env` for the default application configuration. Indexing sends normalized document text to OpenAI for `text-embedding-3-small` embeddings; search also embeds the question. These operations incur provider usage. The direct source-inspection workflow makes no model calls.
-- [**Google service account**](https://docs.cloud.google.com/iam/docs/keys-create-delete): required only when enabling a Drive source. Set `GOOGLE_DRIVE_CLIENT_EMAIL` and `GOOGLE_DRIVE_PRIVATE_KEY` from its credential file. Quote the private key and preserve its escaped `\n` line breaks. Enable the Drive API and Google Docs API for that project and share each selected folder with the service account as Viewer.
-- **Source catalog:** edit `source-catalog.json` for folder IDs, stable source IDs and mount paths. Drive examples are disabled initially; the bundled sample is enabled. Both Drive folders use the same `organization` credential reference. Folder IDs do not belong in `.env`.
+- **[OpenAI API key](https://platform.openai.com/api-keys)**: set `OPENAI_API_KEY` in `.env`. Normalized document text and query embeddings use `text-embedding-3-small`; questions and retrieved excerpts go to the default `gpt-5.6-terra` model. These operations incur provider usage.
+- **[Google service-account credentials](https://docs.cloud.google.com/iam/docs/keys-create-delete)**: required for enabled Google Drive sources. Set `GOOGLE_DRIVE_CLIENT_EMAIL` and `GOOGLE_DRIVE_PRIVATE_KEY` from the credential file, enable the Drive and Docs APIs, and share each configured folder with that service account as Viewer.
+- **Source catalog**: configure stable source IDs, mounts, and folders in `source-catalog.json`. Folder IDs belong in this catalog, not in `.env`. Disable Drive entries for a local-only run.
 
 ## Quickstart 🚀
 
-1. **Open this checkout**
-   - Work from the directory containing `package.json`. A published template installation reference is not available yet.
+1. **Create the template**
+   - Run `npx create-mastra@latest --template https://github.com/drantunes/template-organization-intelligence` and change into the generated directory.
 2. **Configure credentials**
-   - Copy `.env.example` to `.env` and fill the required values described above. Keep the default sample-only catalog for the first local run.
-3. **Start the local server**
-   - Run `pnpm dev:local`. It installs the frozen dependency set, validates configuration and starts Mastra on loopback. Reruns preserve credentials, catalog and derived state.
-   - Open the Studio address printed by Mastra. After startup indexing, select **Organization Agent** and ask “How long are invoices retained?” Expect an answer with the `/sample/records-retention.md` citation, source readiness and freshness. The `POST /organization-answer` route and MCP `answerOrganizationQuestion` tool use the same agent contract.
+   - Run `cp .env.example .env` and add the values described in Prerequisites.
+3. **Start Mastra**
+   - Run `pnpm dev:local`.
+   - Open [Mastra Studio](http://localhost:4111), select **Organization Agent**, and ask “How long are invoices retained?” The answer includes a source citation and freshness status.
 
 ## Try it out
 
-- Add a Markdown, textual PDF or DOCX record under an enabled local folder. Run `sync-organization-sources` with `{"trigger":"manual"}`, then search for a fact from the new file. It becomes searchable without restarting. The same workflow runs every five minutes while the process is running.
-- Edit the record and refresh. Search returns the committed replacement; a no-change refresh reports unchanged records without embedding them again. Review indexed, changed, skipped, failed and removed counts for each source.
-- Enable two Drive catalog entries with different folder IDs, then restart. Share the folders with the service account and add native Docs or Sheets. Search evidence in a nested document tab or a second worksheet and inspect its original Drive link and locator.
-- Interrupt Drive access after a successful scan. Local refresh continues; cached Drive evidence remains available with a stale warning and its last successful scan time. Only a complete scan can confirm removal. Freshness also becomes stale after ten minutes without success.
-- Disable a catalog entry and restart. Its cached evidence is excluded from search. Catalog changes require a restart; document additions and edits under existing roots do not.
-- To inspect a small text record directly, select `inspect-organization-source` with `{"sourceId":"sample","path":"records-retention.md"}`. Inspection reads the source and does not establish index freshness.
+- Ask “How long are invoices retained and who approves archive access?” after adding one record to each of two mounts. The answer can cite both sources instead of flattening them into one result.
+- Ask an unrecorded policy question. The agent returns `insufficient_evidence` with no invented citation.
+- Edit a local record, then run the `sync-organization-sources` workflow with `{"trigger":"manual"}`. The changed revision becomes searchable without restarting; the scheduled refresh also runs every five minutes.
+- Add a native Google Doc with a nested tab or a Google Sheet with multiple nonempty worksheets. Search results retain the originating Drive link and tab or worksheet locator.
 
 ## Customization
 
-- Ask a coding agent to inspect the implementation and propose a plan before adapting it: “Add a new read-only document source while preserving source identity and the existing containment tests.”
-- Replace bundled samples or add catalog entries. Preserve an existing source ID only while its provider and root remain the same; use a new ID for a different root. Keep external credentials out of the catalog.
-- Add another local folder or Google Drive folder by adding a catalog entry; no code change is needed. To support a new provider, add its schema to the discriminated union and its identity rule in `src/source-providers.ts`, add root validation in `src/catalog.ts`, and add the native Mastra filesystem plus credential handling in `src/sources.ts`. Keep native Mastra mounts read-only. The scoped Drive ingestion helper shares the provider authentication callback and resolves stable IDs, bounded downloads and native exports; answering tools must not accept arbitrary Drive IDs.
+- Ask a coding agent to explore the project and propose a plan before changing it. For example: “Add a read-only Notion source while preserving source identity, citations, and the containment tests.”
+- Replace the sample catalog entries with company folders, or add a provider by extending the catalog schema, identity rule, credential handling, and deterministic source tests.
 
-## Local checks and limits
+## API, MCP, and Operations
 
-`pnpm check:env` validates local configuration without proving remote access. `pnpm dev` starts an installed checkout. `pnpm test` runs credential-free deterministic tests; `pnpm check` combines formatting, static checks, tests and build. `pnpm build` creates the Mastra build output.
+The Studio agent, HTTP route, and MCP tool use the same grounded answer contract. With the server running:
 
-The separate `pnpm test:integration` command contacts real Drive sources. Enable two synthetic folders and place `f1-drive-smoke.txt` in each, containing `source=<configured-source-id>`. Missing setup or failed access is a failed test, not a skipped success. Live Drive validation has not been performed for this checkout.
+```sh
+curl -sS http://localhost:4111/organization-answer \
+-H 'content-type: application/json' \
+-d '{"question":"How long are invoices retained?"}'
+```
 
-Inspection accepts text records up to 64 KiB. Indexing supports Markdown, textual PDF, DOCX and native Google Docs/Sheets, including nested tabs and all nonempty worksheets. PDFs retain page locators; image-only pages are not indexed and mixed PDFs report partial extraction. OCR, spreadsheet recalculation and source writes are excluded. Missing cached formula values and formula errors remain visible. Duplicate Drive sibling names and shortcuts are skipped.
+Connect a native Mastra MCP client to `http://localhost:4111/api/mcp/organization-intelligence/mcp` and call `organization_answerOrganizationQuestion`:
 
-Each scan is bounded to 1,000 entries per source and depth 32. Inputs are limited to 20 MiB, native exports to 10 MB, and normalized text to 1 MiB per record. Office extraction also limits inflated XML to 32 MiB, 2,000 archive entries, XML depth 64, 100 worksheets and 100,000 cells; PDFs are limited to 1,000 pages. Partial listings preserve cached records instead of treating them as deleted. Search accepts up to 4,000 characters and returns at most six chunks. This is a trusted local tool, without a public authentication layer.
+```ts
+import { MCPClient } from '@mastra/mcp';
+import { noopObserve } from '@mastra/core/tools';
 
-The server uses one synchronization writer. Overlapping triggers report `skipped`; queries continue using the last committed generation until publication completes. Restart rebuilds hybrid search from committed text and stored embeddings without re-embedding unchanged records. One persisted schedule is reused on restart; missed downtime ticks are not replayed, and startup refreshes once. Run metadata is retained for seven days. Deterministic tests use synthetic files and controlled HTTP, not live Google/OpenAI evidence.
+const client = new MCPClient({
+  servers: {
+    organization: {
+      url: new URL('http://localhost:4111/api/mcp/organization-intelligence/mcp'),
+    },
+  },
+});
+try {
+  const tools = await client.listTools();
+  const tool = tools.organization_answerOrganizationQuestion;
+  if (!tool?.execute) throw new Error('Organization MCP tool is unavailable.');
+  const result = await tool.execute({ question: 'How long are invoices retained?' }, { observe: noopObserve });
+  console.log(result);
+} finally {
+  await client.disconnect();
+}
+```
 
-Local state lives under `.mastra/` using file-backed libSQL and a source-identity ledger. No database service or container setup is required. The ledger rejects reusing an existing ID for a different root. Do not delete it to work around a mismatch; assign a new source ID. To rebuild or purge derived data, stop every running instance, then remove only `.mastra/organization-intelligence.db` and its `-wal`/`-shm` sidecars plus `.mastra/source-identities.json`. Restart with `pnpm dev`. This discards cached records, embeddings and schedule/run state and requires a fresh scan and paid embeddings. Preserve `.env`, `source-catalog.json` and every source folder. If Google is unavailable during the rebuild, there is no cached Drive evidence to serve. No automatic destructive reset is provided.
+`GET /organization-telemetry` reports seven days of metadata-only operations. `sourceUtilization` counts sources represented in retrieved answer evidence. The unanswered rate uses completed questions as its denominator, while operational errors are reported separately. Usage is `unavailable` when the provider did not report it and `partial` when only some events reported it. The application does not configure an external span exporter. Questions, answers, excerpts, credentials, and native provider payloads are not stored in this telemetry.
+
+`pnpm eval -- --allow-live --state-dir /tmp/organization-eval` is an explicit bounded live quality run. It creates an isolated synthetic corpus and writes `evaluation-report.json` under the supplied state directory. It permits no more than 30 answer calls and 30 judge calls, both configured with zero retries, plus the embeddings needed for the corpus and questions. The report contains aggregates and settings; its pass criteria are mean required-record recall at least 0.85, supported-claim fraction at least 0.90, every citation resolvable, 5/5 unknown abstentions, 3/3 explicit conflicts, 2/2 safe malicious-document results, and at least 4 consistent paraphrase pairs. It exits nonzero for a failed report or pre-case failure. Live evaluation must meet all listed criteria; deterministic tests do not establish live quality.
+
+The deterministic suite uses controlled native Drive Docs and Sheets transport. The separate `pnpm test:integration` command contacts real Drive sources: enable two synthetic folders and place `f1-drive-smoke.txt` in each with `source=<configured-source-id>`. Missing setup or failed access fails the test. A remote Drive smoke verified inspection of the configured folders; it does not establish native Docs/Sheets extraction or model-quality behavior against remote content.
+
+Indexing supports Markdown, textual PDF, DOCX, and native Google Docs/Sheets, including nested tabs and nonempty worksheets. Each scan is bounded to 1,000 entries per source and depth 32; records, native exports, normalized text, archive inflation, PDF pages, worksheets, cells, and search results also have explicit limits. Image-only PDF pages, OCR, spreadsheet recalculation, and source writes are outside this template’s scope.
+
+Use a source ID only while its provider and root remain the same. When replacing a root, assign a new ID, update `source-catalog.json`, and restart; disabled and removed catalog sources are excluded from search even when cached records remain. If a Drive refresh becomes incomplete after a successful scan, cached evidence remains searchable with a stale warning and last-success time. Only a complete scan reconciles deletions.
+
+The shipped application factory uses fixed local file-backed libSQL state under `.mastra/`. Adapting it for shared durable state, including Turso, requires code changes and verification of the one-writer sync rule, persisted schedules, and BM25/vector rebuild behavior. It is not enabled by `TURSO_DATABASE_URL` or `TURSO_AUTH_TOKEN` alone.
+
+`pnpm dev:local` performs a frozen-lockfile install, validates configuration, and starts the local server. It preserves `.env`, `source-catalog.json`, and existing derived state across reruns; an install failure prevents the dev server from starting. `pnpm check:env` validates configuration without remote access. `pnpm test` runs deterministic tests, and `pnpm check` runs formatting, linting, type checking, tests, and the build.
+
+To rebuild local derived state, stop every running instance, then remove only `.mastra/organization-intelligence.db` and its `-wal` and `-shm` sidecars plus `.mastra/source-identities.json`. Restart with `pnpm dev`. Preserve `.env`, `source-catalog.json`, and every source folder. Rebuilding discards cached records, embeddings, and schedule/run state and requires a fresh scan and paid embeddings.
 
 ## About Mastra templates
 
-Mastra templates provide starting points for applications built with its agents, workflows and integrations. This local project uses read-only Workspace mounts, persistent synchronization workflows and hybrid retrieval. Publication and template-directory attribution have not been established.
+This standalone repository uses Mastra workflows, agents, read-only Workspace mounts, and Google Drive ingestion for institutional search. Publication and template-directory attribution have not been established.
