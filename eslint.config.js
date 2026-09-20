@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint';
 import oxlintConfig from './oxlint.config.ts';
 
 export default [
-  { ignores: ['node_modules/**', '.cache/**', '.mastra/**', 'dist/**', 'coverage/**'] },
+  { ignores: ['node_modules/**', '.cache/**', '.mastra/**', 'dist/**', 'build/**', 'coverage/**'] },
   {
     files: ['**/*.js', '**/*.ts'],
     languageOptions: { globals: globals.node },

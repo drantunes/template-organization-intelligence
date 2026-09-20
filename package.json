@@ -22,7 +22,8 @@
     "dev": "node --env-file-if-exists=.env scripts/check-env.mjs && mastra dev",
     "dev:local": "node scripts/bootstrap.mjs",
     "check": "pnpm format:check && pnpm lint:oxlint && pnpm lint:eslint && pnpm typecheck && pnpm test && pnpm build",
-    "test:integration": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.ts"
+    "test:integration": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.ts",
+    "eval": "tsc -p tsconfig.eval.json && node --env-file-if-exists=.env build/eval/eval-runner.js"
   },
   "dependencies": {
     "@libsql/client": "0.18.0",

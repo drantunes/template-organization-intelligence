@@ -4,13 +4,14 @@ type FixtureOptions = {
   finishReason?: string;
   onCall?: (call: ModelCall) => void;
   textForCall?: (call: ModelCall) => string;
+  usage?: unknown;
 };
 
 export function fixedLanguageModel(text: string, options: FixtureOptions = {}) {
   const errorForCall = () => (typeof options.error === 'function' ? options.error() : options.error);
   const textForCall = (call: ModelCall) => options.textForCall?.(call) ?? text;
   return {
-    specificationVersion: 'v2' as const,
+    specificationVersion: 'v3' as const,
     provider: 'controlled-test-provider',
     modelId: 'controlled-test-model',
     supportedUrls: async () => ({}),
@@ -21,7 +22,7 @@ export function fixedLanguageModel(text: string, options: FixtureOptions = {}) {
       return {
         content: [{ type: 'text', text: textForCall(call) }],
         finishReason: options.finishReason ?? 'stop',
-        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        usage: options.usage ?? { inputTokens: { total: 1 }, outputTokens: { total: 1 }, totalTokens: 2 },
         warnings: [],
         response: { id: 'controlled-response', timestamp: new Date(0), modelId: 'controlled-test-model' },
       };
@@ -49,7 +50,7 @@ export function fixedLanguageModel(text: string, options: FixtureOptions = {}) {
             controller.enqueue({
               type: 'finish',
               finishReason: options.finishReason ?? 'stop',
-              usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              usage: options.usage ?? { inputTokens: { total: 1 }, outputTokens: { total: 1 }, totalTokens: 2 },
             });
             controller.close();
           },

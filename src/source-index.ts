@@ -13,6 +13,7 @@ import { sourceIdentity } from './catalog.js';
 import { extractRecord, ExtractionError, MAX_RECORD_BYTES } from './extractors.js';
 import type { ExtractedRecord, LocatedChunk } from './extractors.js';
 import type { SourceRuntime } from './sources.js';
+import { TelemetryStore } from './telemetry.js';
 
 export type EmbeddingFunction = (text: string) => Promise<number[]>;
 export type SyncSourceResult = {
@@ -81,6 +82,7 @@ export class SourceIndex {
   #initialized = false;
   #closed = false;
   #lastRun?: SyncResult;
+  readonly telemetry: TelemetryStore;
 
   constructor(
     private readonly options: {
@@ -93,6 +95,7 @@ export class SourceIndex {
   ) {
     this.#client = createClient({ url: options.databaseUrl });
     this.#vector = new LibSQLVector({ id: 'organization-intelligence-vectors', url: options.databaseUrl });
+    this.telemetry = new TelemetryStore(options.databaseUrl, options.now);
   }
   #now(): string {
     return (this.options.now?.() ?? new Date()).toISOString();
@@ -168,6 +171,7 @@ export class SourceIndex {
 
   async sync(): Promise<SyncResult> {
     if (!this.#initialized || this.#closed) throw new Error('Search index is not ready.');
+    await this.telemetry.cleanup().catch(() => undefined);
     if (this.#running)
       return { runId: randomUUID(), status: 'skipped', sources: [], startedAt: this.#now(), finishedAt: this.#now() };
     const pending = this.#synchronize();
@@ -210,6 +214,7 @@ export class SourceIndex {
     this.#closed = true;
     await this.#vector.close();
     this.#client.close();
+    await this.telemetry.close();
   }
 
   async #synchronize(): Promise<SyncResult> {

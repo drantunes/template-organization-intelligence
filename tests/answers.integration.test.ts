@@ -179,6 +179,25 @@ describe('Organization Agent grounded answer integration', () => {
       ) as never,
     );
     const direct = await askOrganizationAgent(agent, 'How are invoice retention and archive access handled?');
+    const contractAgent = createOrganizationAgent(
+      fixture.index,
+      fixedLanguageModel('', {
+        textForCall: call => {
+          const prompt = stringsIn(call.prompt).join('\n');
+          return prompt.includes('"answered"') &&
+            prompt.includes('"insufficient_evidence"') &&
+            prompt.includes('"conflicting_evidence"') &&
+            prompt.includes('exact evidence recordId')
+            ? JSON.stringify({ status: 'answered', answer: 'Grounded.', citations: [citations[0]] })
+            : '{}';
+        },
+      }) as never,
+    );
+    expect(
+      await askOrganizationAgent(contractAgent, 'How are invoice retention and archive access handled?'),
+    ).toMatchObject({
+      status: 'answered',
+    });
     const registered = new Mastra({ agents: { organizationAgent: agent } }).getAgent('organizationAgent');
     const studio = await askOrganizationAgent(registered, 'How are invoice retention and archive access handled?');
     const mcp = await createOrganizationMcpServer(agent).executeTool('answerOrganizationQuestion', {
@@ -198,6 +217,11 @@ describe('Organization Agent grounded answer integration', () => {
     expect(direct.status).toBe('answered');
     expect(JSON.stringify({ direct, studio, mcp })).not.toContain('synthetic-source-secret');
     expect(modelCalls.every(call => !call.tools || Object.keys(call.tools as object).length === 0)).toBe(true);
+    const contract = stringsIn(modelCalls[0]?.prompt).join('\n');
+    expect(contract).toContain('"answered"');
+    expect(contract).toContain('"insufficient_evidence"');
+    expect(contract).toContain('"conflicting_evidence"');
+    expect(contract).toContain('exact evidence recordId');
     expect(studio).toMatchObject({ status: direct.status, citations: direct.citations });
     expect(new Set(direct.metadata.sourceIds)).toEqual(new Set(['policies', 'processes']));
     expect(direct.citations).toEqual(
@@ -288,6 +312,7 @@ describe('Organization Agent grounded answer integration', () => {
     expect(final?.type === 'text-delta' && JSON.parse(final.payload.text)).toMatchObject({
       status: 'operational_error',
       citations: [],
+      metadata: { validationFailure: 'invalid_citation' },
     });
 
     let invalidSearches = 0;
@@ -469,6 +494,7 @@ describe('Organization Agent grounded answer integration', () => {
     expect(final?.type === 'text-delta' && JSON.parse(final.payload.text)).toMatchObject({
       status: 'operational_error',
       citations: [],
+      metadata: { validationFailure: 'invalid_json' },
     });
 
     const failingCalls: Array<{ prompt: unknown; tools?: unknown }> = [];

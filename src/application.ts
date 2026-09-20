@@ -1,3 +1,4 @@
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import type { Agent } from '@mastra/core/agent';
@@ -5,7 +6,12 @@ import type { Config } from '@mastra/core/mastra';
 import { MastraWorker } from '@mastra/core/worker';
 import { LibSQLStore } from '@mastra/libsql';
 
-import { createOrganizationAgent, createOrganizationAnswerRoute, createOrganizationMcpServer } from './answers.js';
+import {
+  createOrganizationAgent,
+  createOrganizationAnswerRoute,
+  createOrganizationMcpServer,
+  createOrganizationTelemetryRoute,
+} from './answers.js';
 import { loadCatalog, validateEnvironment } from './catalog.js';
 import { SourceIndex } from './source-index.js';
 import type { EmbeddingFunction } from './source-index.js';
@@ -54,6 +60,7 @@ export async function createOrganizationApplication(options: {
   embed?: EmbeddingFunction;
   sources?: SourceRuntime;
   answerModel?: ConstructorParameters<typeof Agent>[0]['model'];
+  now?: () => Date;
 }) {
   const environment = options.environment ?? process.env;
   const catalogPath = resolve(options.projectRoot, 'source-catalog.json');
@@ -68,18 +75,21 @@ export async function createOrganizationApplication(options: {
       ledgerPath: resolve(options.projectRoot, '.mastra/source-identities.json'),
       environment,
     }));
+  await mkdir(resolve(options.projectRoot, '.mastra'), { recursive: true });
   const databaseUrl = 'file:' + resolve(options.projectRoot, '.mastra/organization-intelligence.db');
   const storage = new LibSQLStore({ id: 'organization-intelligence-state', url: databaseUrl });
   const index = new SourceIndex({
     sources,
     databaseUrl,
     embed: options.embed ?? openAIEmbedder(environment.OPENAI_API_KEY!),
+    now: options.now,
   });
   const sourceInspectionWorkflow = createSourceInspectionWorkflow(sources);
   const sourceSyncWorkflow = createSourceSyncWorkflow(index);
   const sourceSearchWorkflow = createSourceSearchWorkflow(index);
   const organizationAgent = createOrganizationAgent(index, options.answerModel);
   const answerRoute = createOrganizationAnswerRoute(organizationAgent);
+  const telemetryRoute = createOrganizationTelemetryRoute(index);
   const mcpServer = createOrganizationMcpServer(organizationAgent);
   class InitialSynchronization extends MastraWorker {
     readonly name = 'organization-initial-sync';
@@ -116,7 +126,7 @@ export async function createOrganizationApplication(options: {
     workspace: sources.workspace,
     agents: { organizationAgent },
     mcpServers: { organizationIntelligence: mcpServer },
-    server: { host: '127.0.0.1', apiRoutes: [answerRoute] },
+    server: { host: '127.0.0.1', apiRoutes: [answerRoute, telemetryRoute] },
     workflows: { sourceInspectionWorkflow, sourceSyncWorkflow, sourceSearchWorkflow },
     workers: [new InitialSynchronization()],
   } satisfies Config;
