@@ -432,8 +432,8 @@ describe('synchronization integration', () => {
     const pdfHits = await index.search('archive certificate');
     expect(pdfHits.find(hit => hit.content.includes('certificate'))?.metadata.locator).toBe('page 2');
     expect(textOf(await index.search('Archivist Nine days'))).toContain('Archivist | Nine days');
-    const native = (await index.search('annual archive charter')).find(hit =>
-      hit.metadata.url?.toString().includes('doc-id'),
+    const native = (await index.search('annual archive charter')).find(
+      hit => hit.metadata.url?.toString().includes('doc-id') && hit.content.includes('annual archive charter'),
     );
     expect(native?.metadata.locator).toContain('tab second');
     expect(native?.metadata.path).toBe('/drive/Nested/Native policy');
