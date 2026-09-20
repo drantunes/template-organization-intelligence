@@ -1,9 +1,11 @@
 import { resolve } from 'node:path';
 
+import type { Agent } from '@mastra/core/agent';
 import type { Config } from '@mastra/core/mastra';
 import { MastraWorker } from '@mastra/core/worker';
 import { LibSQLStore } from '@mastra/libsql';
 
+import { createOrganizationAgent, createOrganizationAnswerRoute, createOrganizationMcpServer } from './answers.js';
 import { loadCatalog, validateEnvironment } from './catalog.js';
 import { SourceIndex } from './source-index.js';
 import type { EmbeddingFunction } from './source-index.js';
@@ -51,6 +53,7 @@ export async function createOrganizationApplication(options: {
   environment?: NodeJS.ProcessEnv;
   embed?: EmbeddingFunction;
   sources?: SourceRuntime;
+  answerModel?: ConstructorParameters<typeof Agent>[0]['model'];
 }) {
   const environment = options.environment ?? process.env;
   const catalogPath = resolve(options.projectRoot, 'source-catalog.json');
@@ -75,6 +78,9 @@ export async function createOrganizationApplication(options: {
   const sourceInspectionWorkflow = createSourceInspectionWorkflow(sources);
   const sourceSyncWorkflow = createSourceSyncWorkflow(index);
   const sourceSearchWorkflow = createSourceSearchWorkflow(index);
+  const organizationAgent = createOrganizationAgent(index, options.answerModel);
+  const answerRoute = createOrganizationAnswerRoute(organizationAgent);
+  const mcpServer = createOrganizationMcpServer(organizationAgent);
   class InitialSynchronization extends MastraWorker {
     readonly name = 'organization-initial-sync';
     #running = false;
@@ -106,15 +112,19 @@ export async function createOrganizationApplication(options: {
   }
   const config = {
     logger: false,
-    server: { host: '127.0.0.1' },
     storage,
     workspace: sources.workspace,
+    agents: { organizationAgent },
+    mcpServers: { organizationIntelligence: mcpServer },
+    server: { host: '127.0.0.1', apiRoutes: [answerRoute] },
     workflows: { sourceInspectionWorkflow, sourceSyncWorkflow, sourceSearchWorkflow },
     workers: [new InitialSynchronization()],
   } satisfies Config;
   return {
     config,
     index,
+    organizationAgent,
+    mcpServer,
     storage,
     sources,
     close: async () => {

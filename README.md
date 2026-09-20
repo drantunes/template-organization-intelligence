@@ -1,6 +1,6 @@
 # Organization Intelligence
 
-Search institutional records from local folders and Google Drive with source paths, document locators and freshness status. One Mastra workflow indexes records at startup, on demand and every five minutes while the server runs. Workspace hybrid search combines keyword and vector retrieval. Generated answers and MCP consumption are not implemented yet.
+Search institutional records from local folders and Google Drive with source paths, document locators and freshness status. One Mastra workflow indexes records at startup, on demand and every five minutes while the server runs. The Organization Agent returns bounded, source-grounded answers through Studio, a local API route and a read-only MCP query tool.
 
 ## Why we built this
 
@@ -20,7 +20,7 @@ Policies and procedures often live in different repositories. Keeping their sour
    - Copy `.env.example` to `.env` and fill the required values described above. Keep the default sample-only catalog for the first local run.
 3. **Start the local server**
    - Run `pnpm dev:local`. It installs the frozen dependency set, validates configuration and starts Mastra on loopback. Reruns preserve credentials, catalog and derived state.
-   - Open the Studio address printed by Mastra. After startup indexing, select `search-organization-records` and submit `{"question":"How long are invoices retained?"}`. Expect located evidence from `/sample/records-retention.md` describing seven-year retention, alongside source readiness and freshness. This workflow returns evidence, not a generated answer.
+   - Open the Studio address printed by Mastra. After startup indexing, select **Organization Agent** and ask “How long are invoices retained?” Expect an answer with the `/sample/records-retention.md` citation, source readiness and freshness. The `POST /organization-answer` route and MCP `answerOrganizationQuestion` tool use the same agent contract.
 
 ## Try it out
 

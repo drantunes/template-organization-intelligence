@@ -29,6 +29,7 @@
     "@mastra/core": "1.67.0",
     "@mastra/google-drive": "0.2.1",
     "@mastra/libsql": "1.23.0",
+    "@mastra/mcp": "1.18.0",
     "fast-xml-parser": "5.11.1",
     "google-auth-library": "11.1.0",
     "pdfjs-dist": "6.3.289",
