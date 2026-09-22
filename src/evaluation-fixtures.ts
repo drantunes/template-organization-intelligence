@@ -1,8 +1,17 @@
-import { mkdir, writeFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { crc32, deflateRawSync } from 'node:zlib';
 
 import { createSourceRuntime } from './sources.js';
+
+const fixtureVersions = new WeakMap<object, string>();
+
+export function evaluationFixtureVersion(runtime: object): string {
+  const version = fixtureVersions.get(runtime);
+  if (!version) throw new Error('The supplied source runtime is not a synthetic evaluation fixture runtime.');
+  return version;
+}
 
 function archive(entries: Record<string, string>): Buffer {
   const local: Buffer[] = [];
@@ -194,7 +203,7 @@ export async function createEvaluationRuntime(stateDirectory: string, environmen
     const file = files.get(url.pathname.split('/')[4] ?? '');
     return file ? new Response(new Uint8Array(file.content)) : new Response('', { status: 404 });
   };
-  return createSourceRuntime({
+  const runtime = await createSourceRuntime({
     catalog: {
       version: 1,
       sources: [
@@ -219,4 +228,18 @@ export async function createEvaluationRuntime(stateDirectory: string, environmen
     driveAccessToken: async () => 'synthetic-access-token',
     driveRequest: request,
   });
+  const fingerprint = createHash('sha256');
+  for (const name of (await readdir(local)).sort()) {
+    fingerprint.update(name);
+    fingerprint.update(await readFile(resolve(local, name)));
+  }
+  for (const file of [...files.values()].sort((left, right) => left.id.localeCompare(right.id))) {
+    fingerprint.update(file.id);
+    fingerprint.update(file.name);
+    fingerprint.update(file.mimeType);
+    fingerprint.update(file.content);
+    fingerprint.update(JSON.stringify(file.docs ?? null));
+  }
+  fixtureVersions.set(runtime, fingerprint.digest('hex'));
+  return runtime;
 }
