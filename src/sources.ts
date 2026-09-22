@@ -1,22 +1,23 @@
 import { relative, resolve } from 'node:path';
 
+import type { S3Client } from '@aws-sdk/client-s3';
 import { LocalFilesystem, Workspace } from '@mastra/core/workspace';
 import type { AnyWorkspace, WorkspaceFilesystem } from '@mastra/core/workspace';
 import { GoogleDriveFilesystem } from '@mastra/google-drive';
 import type { GoogleDriveFilesystemOptions } from '@mastra/google-drive';
 
-import type { CatalogSource, SourceCatalog } from './catalog.js';
+import type { CatalogSource, S3Source, SourceCatalog } from './catalog.js';
 import { normalizeMountPath, validateCatalog } from './catalog.js';
 import { ScopedDriveReader } from './drive-source.js';
 import type { DriveAccessToken } from './drive-source.js';
 import { validateAndPersistSourceIdentity } from './identity-ledger.js';
-
-const GOOGLE_DRIVE_READONLY_SCOPE = 'https://www.googleapis.com/auth/drive.readonly';
-const MAX_INSPECTION_BYTES = 64 * 1024;
+import { BoundedS3Filesystem, MAX_INSPECTION_BYTES, ScopedS3Reader } from './s3-source.js';
 
 type SourceStatus = 'available' | 'configured' | 'unavailable';
 type SourceFilesystem = WorkspaceFilesystem;
 type DriveFilesystemFactory = (options: GoogleDriveFilesystemOptions) => WorkspaceFilesystem;
+/** Test-only public client configuration; production always uses Mastra's native client. */
+type S3ClientFactory = (client: S3Client, source: S3Source) => void;
 
 export type SourceInspection = {
   sourceId: string;
@@ -30,6 +31,7 @@ export type SourceRuntime = {
   catalog: SourceCatalog;
   workspace: AnyWorkspace;
   driveReaders: Map<string, ScopedDriveReader>;
+  s3Readers: Map<string, ScopedS3Reader>;
   inspect: (sourceId: string, relativePath: string) => Promise<SourceInspection>;
   sourceStatuses: () => Array<Omit<SourceInspection, 'content'>>;
 };
@@ -45,10 +47,21 @@ function configuredDriveCredentials(environment: NodeJS.ProcessEnv): Credentials
   return { clientEmail, privateKey };
 }
 
+function configuredS3Credentials(environment: NodeJS.ProcessEnv) {
+  const accessKeyId = environment.S3_ACCESS_KEY_ID?.trim();
+  const secretAccessKey = environment.S3_SECRET_ACCESS_KEY?.trim();
+  if (!accessKeyId && !secretAccessKey) return undefined;
+  if (!accessKeyId || !secretAccessKey)
+    throw new Error('S3 credentials are incomplete. Provide both accepted S3 credential settings.');
+  return { accessKeyId, secretAccessKey };
+}
+
 function safeError(source: CatalogSource): string {
-  return source.provider === 'google-drive'
-    ? `Source ${source.id} is unavailable. Confirm its configured credentials and folder access.`
-    : `Source ${source.id} is unavailable. Confirm its configured local root.`;
+  if (source.provider === 'google-drive')
+    return `Source ${source.id} is unavailable. Confirm its configured credentials and folder access.`;
+  if (source.provider === 's3')
+    return `Source ${source.id} is unavailable. Confirm its configured credentials and bucket access.`;
+  return `Source ${source.id} is unavailable. Confirm its configured local root.`;
 }
 
 function safeRelativePath(relativePath: string): string {
@@ -86,19 +99,25 @@ export async function createSourceRuntime(options: {
   driveFilesystemFactory?: DriveFilesystemFactory;
   driveAccessToken?: DriveAccessToken;
   driveRequest?: typeof fetch;
+  configureS3Client?: S3ClientFactory;
 }): Promise<SourceRuntime> {
   const environment = options.environment ?? process.env;
   const catalog = freezeCatalog(await validateCatalog(options.catalog, options.catalogPath));
   const enabledSources = catalog.sources.filter(source => source.enabled);
   const credentials = configuredDriveCredentials(environment);
+  const s3Credentials = configuredS3Credentials(environment);
   if (enabledSources.some(source => source.provider === 'google-drive') && !credentials) {
     throw new Error('Enabled Google Drive sources require both accepted Drive credential settings.');
+  }
+  if (enabledSources.some(source => source.provider === 's3') && !s3Credentials) {
+    throw new Error('Enabled S3 sources require both accepted S3 credential settings.');
   }
   await validateAndPersistSourceIdentity(options.ledgerPath, enabledSources);
   const filesystems = new Map<string, SourceFilesystem>();
   const statuses = new Map<string, SourceStatus>();
   const mounts: Record<string, SourceFilesystem> = {};
   const driveReaders = new Map<string, ScopedDriveReader>();
+  const s3Readers = new Map<string, ScopedS3Reader>();
   const getAccessToken =
     options.driveAccessToken ?? (credentials ? ScopedDriveReader.serviceAccount(credentials) : undefined);
 
@@ -118,18 +137,33 @@ export async function createSourceRuntime(options: {
       continue;
     }
 
+    if (source.provider === 's3') {
+      const filesystem = new BoundedS3Filesystem(
+        {
+          id: source.id,
+          bucket: source.bucket,
+          region: source.region,
+          endpoint: source.endpoint,
+          prefix: source.prefix,
+          readOnly: true,
+          // Explicit credentials prevent the upstream client's ambient provider chain.
+          credentials: s3Credentials,
+        },
+        source,
+      );
+      options.configureS3Client?.(filesystem.client, source);
+      filesystems.set(source.id, filesystem);
+      mounts[mountPath] = filesystem;
+      s3Readers.set(source.id, new ScopedS3Reader(source, filesystem.client));
+      statuses.set(source.id, options.configureS3Client ? 'available' : 'configured');
+      continue;
+    }
+
     const driveOptions: GoogleDriveFilesystemOptions = {
       id: source.id,
       folderId: source.folderId,
       readOnly: true,
       getAccessToken,
-      serviceAccount: credentials
-        ? {
-            clientEmail: credentials.clientEmail,
-            privateKey: credentials.privateKey,
-            scopes: [GOOGLE_DRIVE_READONLY_SCOPE],
-          }
-        : undefined,
     };
     const filesystem = options.driveFilesystemFactory?.(driveOptions) ?? new GoogleDriveFilesystem(driveOptions);
     if (getAccessToken)
@@ -158,6 +192,7 @@ export async function createSourceRuntime(options: {
     catalog,
     workspace,
     driveReaders,
+    s3Readers,
     sourceStatuses: () =>
       enabledSources.map(source => ({
         sourceId: source.id,
@@ -217,4 +252,4 @@ export async function createSourceRuntime(options: {
   };
 }
 
-export { GOOGLE_DRIVE_READONLY_SCOPE, MAX_INSPECTION_BYTES };
+export { MAX_INSPECTION_BYTES };

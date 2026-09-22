@@ -82,6 +82,7 @@ type ProcessorState = {
   telemetryRecorded?: boolean;
   usageReported?: boolean;
   observationRecorded?: boolean;
+  presentation?: 'studio' | 'structured';
 };
 
 function reportedUsage(
@@ -115,31 +116,52 @@ const outputDraftSchema = z.object({
   citations: z.array(z.object({ recordId: z.string().min(1), locator: z.string().min(1) })).max(6),
 });
 
-function questionFromMessages(messages: Array<{ role: string; type?: unknown; content: unknown }>): string {
+function latestQuestionMessage(messages: Array<{ role: string; type?: unknown; content: unknown }>) {
   for (const message of [...messages].reverse()) {
     // Studio routes a submitted chat message as a user signal. Do not treat any
     // other signal (including system or approval signals) as a question.
     if (message.role !== 'user' && !(message.role === 'signal' && message.type === 'user')) continue;
-    if (typeof message.content === 'string') return message.content;
-    if (typeof message.content !== 'object' || message.content === null) return '';
-    const content = message.content as { content?: unknown; parts?: unknown };
-    if (typeof content.content === 'string') return content.content;
-    if (!Array.isArray(content.parts)) return '';
-    const text = content.parts
-      .filter(
-        (part): part is { type: 'text'; text: string } =>
-          typeof part === 'object' &&
-          part !== null &&
-          'type' in part &&
-          'text' in part &&
-          part.type === 'text' &&
-          typeof part.text === 'string',
-      )
-      .map(part => part.text)
-      .join('');
-    return text;
+    return message;
   }
   throw new Error('Use a non-empty question of at most 4000 characters.');
+}
+
+function questionFromMessage(message: { content: unknown }): string {
+  if (typeof message.content === 'string') return message.content;
+  if (typeof message.content !== 'object' || message.content === null) return '';
+  const content = message.content as { content?: unknown; parts?: unknown };
+  if (typeof content.content === 'string') return content.content;
+  if (!Array.isArray(content.parts)) return '';
+  return content.parts
+    .filter(
+      (part): part is { type: 'text'; text: string } =>
+        typeof part === 'object' &&
+        part !== null &&
+        'type' in part &&
+        'text' in part &&
+        part.type === 'text' &&
+        typeof part.text === 'string',
+    )
+    .map(part => part.text)
+    .join('');
+}
+
+function isNativeStudioMessage(message: { role: string; type?: unknown; content: unknown }): boolean {
+  if (message.role !== 'signal' || message.type !== 'user' || typeof message.content !== 'object' || !message.content)
+    return false;
+  const metadata = (message.content as { metadata?: unknown }).metadata;
+  if (typeof metadata !== 'object' || !metadata) return false;
+  const signal = (metadata as { signal?: unknown }).signal;
+  const signalMetadata =
+    typeof signal === 'object' && signal !== null ? (signal as { metadata?: unknown }).metadata : null;
+  return (
+    typeof signal === 'object' &&
+    signal !== null &&
+    (signal as { type?: unknown }).type === 'user' &&
+    typeof signalMetadata === 'object' &&
+    signalMetadata !== null &&
+    typeof (signalMetadata as { clientMessageId?: unknown }).clientMessageId === 'string'
+  );
 }
 
 function boundedEvidence(hits: Awaited<ReturnType<SourceIndex['search']>>, sourceStatus: SourceStatus[]): Evidence[] {
@@ -284,6 +306,52 @@ function textDelta(part: ChunkType, text: string): ChunkType {
   return { type: 'text-delta', runId: part.runId, from: part.from, payload: { id: 'validated-answer', text } };
 }
 
+function markdownText(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replace(/[\\`*_{}\[\]()#+\-.!|]/g, '\\$&');
+}
+
+function markdownCitation(citation: OrganizationAnswer['citations'][number]): string {
+  const label = markdownText(`${citation.title} — ${citation.path} (${citation.locator})`);
+  if (!citation.url || !isSafeMarkdownUrl(citation.url)) return `- ${label}`;
+  return `- [${label}](<${citation.url}>)`;
+}
+
+function isSafeMarkdownUrl(url: string): boolean {
+  try {
+    return new URL(url).protocol === 'https:' && !/[\\<>\s]/.test(url);
+  } catch {
+    return false;
+  }
+}
+
+function studioPresentation(result: OrganizationAnswer): string {
+  const status = {
+    answered: 'Answered',
+    insufficient_evidence: 'Insufficient evidence',
+    conflicting_evidence: 'Conflicting evidence',
+    operational_error: 'Operational error',
+  }[result.status];
+  const lines = [`**Status:** ${status}`, '', markdownText(result.answer)];
+  if (result.citations.length) lines.push('', '**Citations**', ...result.citations.map(markdownCitation));
+  lines.push('', '**Source status**');
+  for (const source of result.sourceStatus) {
+    const lastSuccess = source.lastSuccessAt ?? 'never';
+    const error = source.error ? `; error: ${markdownText(source.error)}` : '';
+    lines.push(
+      `- ${markdownText(source.sourceId)}: ${source.ready ? 'ready' : 'unavailable'}; ${source.stale ? 'stale' : 'current'}; ${source.records} record${source.records === 1 ? '' : 's'}; last success: ${markdownText(lastSuccess)}${error}`,
+    );
+  }
+  return lines.join('\n');
+}
+
+function presentedResult(result: OrganizationAnswer, state: ProcessorState): string {
+  return state.presentation === 'studio' ? studioPresentation(result) : JSON.stringify(result);
+}
+
 export function createOrganizationAgent(
   index: SourceIndex,
   model: ConstructorParameters<typeof Agent>[0]['model'] = 'openai/gpt-5.6-terra',
@@ -313,7 +381,9 @@ export function createOrganizationAgent(
     id: 'organization-grounding',
     processInput: async ({ messages, state, systemMessages }) => {
       const processorState = state as ProcessorState;
-      const question = questionFromMessages(messages);
+      const questionMessage = latestQuestionMessage(messages);
+      processorState.presentation = isNativeStudioMessage(questionMessage) ? 'studio' : 'structured';
+      const question = questionFromMessage(questionMessage);
       if (!question.trim() || question.length > MAX_QUESTION_CHARACTERS)
         throw new Error('Use a non-empty question of at most 4000 characters.');
       const startedAt = performance.now();
@@ -359,7 +429,7 @@ export function createOrganizationAgent(
         processorState.answerResult = result;
         recordObservation(result, processorState);
         await recordTelemetry(result, processorState, undefined, true);
-        return textDelta(part, JSON.stringify(result));
+        return textDelta(part, presentedResult(result, processorState));
       }
       if (part.type !== 'finish') return null;
       const payload = part.payload as unknown as { output?: { usage?: unknown }; usage?: unknown };
@@ -369,14 +439,14 @@ export function createOrganizationAgent(
         processorState.answerResult = result;
         recordObservation(result, processorState);
         await recordTelemetry(result, processorState, payload.output?.usage ?? payload.usage);
-        return textDelta(part, JSON.stringify(result));
+        return textDelta(part, presentedResult(result, processorState));
       } catch {
         processorState.emittedResult = true;
         const result = safeOperationalResult(processorState);
         processorState.answerResult = result;
         recordObservation(result, processorState);
         await recordTelemetry(result, processorState, payload.output?.usage ?? payload.usage);
-        return textDelta(part, JSON.stringify(result));
+        return textDelta(part, presentedResult(result, processorState));
       }
     },
     processOutputStep: ({ messages }) =>

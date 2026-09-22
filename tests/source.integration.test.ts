@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { SourceCatalog } from '../src/catalog.js';
 import { loadCatalog, validateEnvironment } from '../src/catalog.js';
-import { createSourceRuntime, GOOGLE_DRIVE_READONLY_SCOPE } from '../src/sources.js';
+import { createSourceRuntime } from '../src/sources.js';
 import { createSourceInspectionWorkflow } from '../src/workflows/source-inspection.js';
 
 const testEnvironment = {
@@ -60,9 +60,8 @@ describe('source integration', () => {
     };
   }
 
-  function localDriveFactory(roots: Record<string, string>, capturedScopes?: string[][]) {
-    return (options: { folderId: string; readOnly?: boolean; serviceAccount?: { scopes?: string[] } }) => {
-      capturedScopes?.push(options.serviceAccount?.scopes ?? []);
+  function localDriveFactory(roots: Record<string, string>) {
+    return (options: { folderId: string; readOnly?: boolean }) => {
       return new LocalFilesystem({
         basePath: roots[options.folderId] ?? directory,
         contained: true,
@@ -104,9 +103,9 @@ describe('source integration', () => {
     );
   }
 
-  function googleDriveFactory(capturedScopes: string[][]) {
-    return (options: { folderId: string; readOnly?: boolean; serviceAccount?: { scopes?: string[] } }) => {
-      capturedScopes.push(options.serviceAccount?.scopes ?? []);
+  function googleDriveFactory(capturedOptions: Array<{ readOnly?: boolean; getAccessToken?: unknown }>) {
+    return (options: { folderId: string; readOnly?: boolean; getAccessToken?: unknown }) => {
+      capturedOptions.push({ readOnly: options.readOnly, getAccessToken: options.getAccessToken });
       return new GoogleDriveFilesystem({
         folderId: options.folderId,
         readOnly: options.readOnly,
@@ -132,13 +131,13 @@ describe('source integration', () => {
   it('mounts_preserve_source_identity', async () => {
     await prepareSources();
     installGoogleDriveResponses();
-    const scopes: string[][] = [];
+    const driveOptions: Array<{ readOnly?: boolean; getAccessToken?: unknown }> = [];
     const runtime = await createSourceRuntime({
       catalog: catalog(),
       catalogPath: join(directory, 'source-catalog.json'),
       ledgerPath: join(directory, 'state', 'ledger.json'),
       environment: testEnvironment,
-      driveFilesystemFactory: googleDriveFactory(scopes),
+      driveFilesystemFactory: googleDriveFactory(driveOptions),
     });
 
     await expect(runtime.inspect('sample', 'overview.md')).resolves.toMatchObject({
@@ -159,7 +158,10 @@ describe('source integration', () => {
     expect((await runtime.inspect('sample', 'guide.md')).content).toBe('Sample: contact the records office.');
     await expect(runtime.workspace.filesystem!.writeFile('/drive/policies/guide.md', 'replacement')).rejects.toThrow();
     expect((await runtime.inspect('policies', 'guide.md')).content).toContain('seven years');
-    expect(scopes).toEqual([[GOOGLE_DRIVE_READONLY_SCOPE], [GOOGLE_DRIVE_READONLY_SCOPE]]);
+    expect(driveOptions).toEqual([
+      expect.objectContaining({ readOnly: true, getAccessToken: expect.any(Function) }),
+      expect.objectContaining({ readOnly: true, getAccessToken: expect.any(Function) }),
+    ]);
   });
 
   it('reject_invalid_mount_configuration', async () => {

@@ -4,7 +4,7 @@ import { z } from 'zod';
 
 import { catalogSourceSchema } from './source-providers.ts';
 export { sourceIdentity } from './source-providers.ts';
-export type { CatalogSource } from './source-providers.ts';
+export type { CatalogSource, S3Source } from './source-providers.ts';
 
 const catalogSchema = z.object({
   version: z.literal(1),
@@ -35,6 +35,56 @@ export function normalizeMountPath(mountPath: string): string {
   return normalized.endsWith('/') ? normalized.slice(0, -1) : normalized;
 }
 
+export function normalizeS3Prefix(prefix: string | undefined): string {
+  if (!prefix) return '';
+  if (prefix.includes('\\') || /[\0-\x1f\x7f]/.test(prefix) || prefix.startsWith('/') || prefix.includes('//')) {
+    throw new CatalogValidationError('S3 prefixes must be relative paths without control characters.');
+  }
+  const parts = prefix.replace(/\/$/, '').split('/');
+  if (!parts.length || parts.some(part => unsafeS3Segment(part)))
+    throw new CatalogValidationError('S3 prefixes must not contain relative segments.');
+  return parts.join('/') + '/';
+}
+
+function unsafeS3Segment(segment: string): boolean {
+  if (!segment || segment === '.' || segment === '..') return true;
+  let decoded = segment;
+  for (let depth = 0; depth < 3; depth++) {
+    try {
+      const next = decodeURIComponent(decoded);
+      if (next === decoded) break;
+      decoded = next;
+    } catch {
+      break;
+    }
+  }
+  return decoded === '.' || decoded === '..' || /[\\/\0-\x1f\x7f]/.test(decoded);
+}
+
+export function normalizeR2Endpoint(endpoint: string): string {
+  if (/[%]2e|[%]2f|[%]5c|[\\\0-\x1f\x7f]/i.test(endpoint))
+    throw new CatalogValidationError('S3 endpoints may not contain encoded or relative path aliases.');
+  let url: URL;
+  try {
+    url = new URL(endpoint);
+  } catch {
+    throw new CatalogValidationError('S3 endpoints must be valid HTTPS R2 endpoints.');
+  }
+  if (
+    url.protocol !== 'https:' ||
+    url.username ||
+    url.password ||
+    url.port ||
+    url.search ||
+    url.hash ||
+    url.pathname !== '/' ||
+    !/^[a-z0-9-]+(?:\.(?:eu|fedramp|us))?\.r2\.cloudflarestorage\.com$/i.test(url.hostname)
+  ) {
+    throw new CatalogValidationError('S3 endpoints must be recognized HTTPS Cloudflare R2 account endpoints.');
+  }
+  return url.origin.toLowerCase();
+}
+
 export async function validateCatalog(input: unknown, catalogPath: string): Promise<SourceCatalog> {
   const parsed = catalogSchema.safeParse(input);
   if (!parsed.success) throw new CatalogValidationError('Source catalog has an invalid source entry.');
@@ -43,6 +93,7 @@ export async function validateCatalog(input: unknown, catalogPath: string): Prom
   const mountPaths = new Set<string>();
   const driveRoots = new Set<string>();
   const localRoots = new Set<string>();
+  const s3Roots: Array<{ endpoint: string; bucket: string; prefix: string }> = [];
   const catalogDirectory = resolve(catalogPath, '..');
 
   for (const source of sourceCatalog.sources) {
@@ -81,15 +132,39 @@ export async function validateCatalog(input: unknown, catalogPath: string): Prom
       continue;
     }
 
-    if (driveRoots.has(source.folderId)) {
-      throw new CatalogValidationError(`Duplicate Google Drive folder root for source ${source.id}.`);
+    if (source.provider === 'google-drive') {
+      if (driveRoots.has(source.folderId)) {
+        throw new CatalogValidationError(`Duplicate Google Drive folder root for source ${source.id}.`);
+      }
+      driveRoots.add(source.folderId);
+      continue;
     }
-    driveRoots.add(source.folderId);
+
+    const endpoint = normalizeR2Endpoint(source.endpoint);
+    const prefix = normalizeS3Prefix(source.prefix);
+    for (const root of s3Roots) {
+      if (
+        root.endpoint === endpoint &&
+        root.bucket === source.bucket &&
+        (prefix.startsWith(root.prefix) || root.prefix.startsWith(prefix))
+      ) {
+        throw new CatalogValidationError('S3 source prefixes must not overlap within an endpoint and bucket.');
+      }
+    }
+    s3Roots.push({ endpoint, bucket: source.bucket, prefix });
+    source.endpoint = endpoint;
+    source.prefix = prefix || undefined;
   }
 
   return {
     ...sourceCatalog,
-    sources: sourceCatalog.sources.map(source => ({ ...source, mountPath: normalizeMountPath(source.mountPath) })),
+    sources: sourceCatalog.sources.map(source => ({
+      ...source,
+      mountPath: normalizeMountPath(source.mountPath),
+      ...(source.provider === 's3'
+        ? { endpoint: normalizeR2Endpoint(source.endpoint), prefix: normalizeS3Prefix(source.prefix) || undefined }
+        : {}),
+    })),
   };
 }
 
@@ -127,6 +202,14 @@ export function validateEnvironment(catalog: SourceCatalog, environment: NodeJS.
     (!clientEmail || !privateKey)
   ) {
     issues.push('Enabled Google Drive sources require both accepted Drive credential settings.');
+  }
+  const s3AccessKey = environment.S3_ACCESS_KEY_ID?.trim();
+  const s3Secret = environment.S3_SECRET_ACCESS_KEY?.trim();
+  if ((s3AccessKey && !s3Secret) || (!s3AccessKey && s3Secret)) {
+    issues.push('S3 credentials are incomplete. Provide both accepted S3 credential settings.');
+  }
+  if (catalog.sources.some(source => source.enabled && source.provider === 's3') && (!s3AccessKey || !s3Secret)) {
+    issues.push('Enabled S3 sources require both accepted S3 credential settings.');
   }
   return issues;
 }
