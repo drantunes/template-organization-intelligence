@@ -19,11 +19,25 @@ export const googleDriveSourceSchema = sourceSchema.extend({
   credentialRef: z.literal('organization'),
 });
 
-export const catalogSourceSchema = z.discriminatedUnion('provider', [localSourceSchema, googleDriveSourceSchema]);
+export const s3SourceSchema = sourceSchema.extend({
+  provider: z.literal('s3'),
+  bucket: z.string().min(3).max(63),
+  endpoint: z.string().url(),
+  region: z.string().min(1),
+  prefix: z.string().optional(),
+  credentialRef: z.literal('organization'),
+});
+
+export const catalogSourceSchema = z.discriminatedUnion('provider', [
+  localSourceSchema,
+  googleDriveSourceSchema,
+  s3SourceSchema,
+]);
 
 export type LocalSource = z.infer<typeof localSourceSchema>;
 export type GoogleDriveSource = z.infer<typeof googleDriveSourceSchema>;
-export type CatalogSource = LocalSource | GoogleDriveSource;
+export type S3Source = z.infer<typeof s3SourceSchema>;
+export type CatalogSource = LocalSource | GoogleDriveSource | S3Source;
 
 function unsupportedProvider(source: never): never {
   throw new Error(`Unsupported source provider: ${String(source)}`);
@@ -35,6 +49,8 @@ export function sourceIdentity(source: CatalogSource): string {
       return source.root;
     case 'google-drive':
       return source.folderId;
+    case 's3':
+      return JSON.stringify({ endpoint: source.endpoint, bucket: source.bucket, prefix: source.prefix ?? '' });
     default:
       return unsupportedProvider(source);
   }

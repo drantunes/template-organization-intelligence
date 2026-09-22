@@ -12,6 +12,8 @@ import type { CatalogSource } from './catalog.js';
 import { sourceIdentity } from './catalog.js';
 import { extractRecord, ExtractionError, MAX_RECORD_BYTES } from './extractors.js';
 import type { ExtractedRecord, LocatedChunk } from './extractors.js';
+import { S3_EXTRACTION_VERSION, supportedS3Path } from './s3-source.js';
+import type { S3Validator } from './s3-source.js';
 import type { SourceRuntime } from './sources.js';
 import { TelemetryStore } from './telemetry.js';
 
@@ -55,12 +57,14 @@ type RecordData = {
   indexedAt: string;
   chunks: StoredChunk[];
   warnings: string[];
+  cache?: { validator: S3Validator; extractionVersion: string };
 };
 type ScanRecord = {
   key: string;
   relativePath: string;
   title: string;
   url?: string;
+  cache?: { validator: S3Validator; extractionVersion: string };
   extract: () => Promise<ExtractedRecord>;
 };
 type Scan = { records: ScanRecord[]; complete: boolean; errors: string[] };
@@ -227,7 +231,7 @@ export class SourceIndex {
     };
     const candidateRecords = new Map(this.#records);
     const states = new Map(this.#freshness);
-    let changed = false;
+    let searchChanged = false;
     for (const source of this.#active()) {
       const result: SyncSourceResult = {
         sourceId: source.id,
@@ -250,13 +254,29 @@ export class SourceIndex {
       }
       result.discovered = scan.records.length;
       result.errors.push(...scan.errors);
+      if (scan.errors.length) result.status = 'partial';
       const seen = new Set<string>();
       for (const file of scan.records) {
         const id = hash(source.id + '\0' + file.key);
         seen.add(id);
         try {
-          const extracted = await file.extract();
           const old = candidateRecords.get(id);
+          if (
+            old?.cache &&
+            file.cache &&
+            old.cache.extractionVersion === file.cache.extractionVersion &&
+            JSON.stringify(old.cache.validator) === JSON.stringify(file.cache.validator) &&
+            old.chunks.length > 0 &&
+            old.chunks.every(chunk => chunk.text && chunk.vector.length && chunk.vector.every(Number.isFinite))
+          ) {
+            if (old.warnings.length) {
+              result.errors.push(...old.warnings);
+              result.status = 'partial';
+            }
+            result.unchanged++;
+            continue;
+          }
+          const extracted = await file.extract();
           if (extracted.warnings.length) {
             result.errors.push(...extracted.warnings);
             result.status = 'partial';
@@ -266,6 +286,13 @@ export class SourceIndex {
             old.relativePath === file.relativePath &&
             old.url === file.url
           ) {
+            if (file.cache && JSON.stringify(old.cache) !== JSON.stringify(file.cache)) {
+              candidateRecords.set(id, { ...old, cache: file.cache });
+            } else if (!file.cache && old.cache) {
+              const updated = { ...old };
+              delete updated.cache;
+              candidateRecords.set(id, updated);
+            }
             result.unchanged++;
             continue;
           }
@@ -288,10 +315,11 @@ export class SourceIndex {
             indexedAt: this.#now(),
             chunks,
             warnings: extracted.warnings,
+            ...(file.cache ? { cache: file.cache } : {}),
           });
           if (old) result.changed++;
           else result.indexed++;
-          changed = true;
+          searchChanged = true;
         } catch (error) {
           result.failed++;
           if (error instanceof ExtractionError) {
@@ -305,7 +333,7 @@ export class SourceIndex {
           if (record.sourceId === source.id && !seen.has(id)) {
             candidateRecords.delete(id);
             result.removed++;
-            changed = true;
+            searchChanged = true;
           }
       const prior = states.get(source.id);
       const successful = scan.complete && result.failed === 0 && result.status === 'success';
@@ -319,7 +347,7 @@ export class SourceIndex {
     }
     let snapshot: Snapshot | undefined;
     try {
-      if (changed) snapshot = await this.#build(candidateRecords);
+      if (searchChanged) snapshot = await this.#build(candidateRecords);
       run.status = run.sources.every(result => result.status === 'success')
         ? 'success'
         : run.sources.every(result => result.status === 'failed')
@@ -474,6 +502,27 @@ export class SourceIndex {
           url: file.url,
           extract: () => reader.extract(file),
         })),
+      };
+    }
+    if (source.provider === 's3') {
+      const reader = this.options.sources.s3Readers.get(source.id);
+      if (!reader) throw new Error('S3 reader is not configured.');
+      const listing = await reader.list();
+      const unsupported = listing.objects.filter(object => !supportedS3Path(object.relativePath));
+      return {
+        complete: listing.complete,
+        errors: [...listing.errors, ...unsupported.map(object => `Unsupported S3 format: ${object.relativePath}.`)],
+        records: listing.objects
+          .filter(object => supportedS3Path(object.relativePath))
+          .map(object => ({
+            key: object.relativePath,
+            relativePath: object.relativePath,
+            title: object.title,
+            ...(object.validator
+              ? { cache: { validator: object.validator, extractionVersion: S3_EXTRACTION_VERSION } }
+              : {}),
+            extract: () => reader.extract(object),
+          })),
       };
     }
     const filesystem = this.options.sources.workspace.filesystem;
