@@ -161,6 +161,100 @@ export type EvaluationReport = {
   };
 };
 
+export type EvaluationEvidence = { recordId: string; locator: string; sourceId: string; content: string };
+
+/** Validates a judge result against the facts and exception rules of its authored case. */
+export function validateJudgeResult(evaluationCase: EvaluationCase, judge: JudgeResult): void {
+  if (
+    !Number.isInteger(judge.supportedClaims) ||
+    !Number.isInteger(judge.totalClaims) ||
+    judge.supportedClaims < 0 ||
+    judge.totalClaims < 0 ||
+    (judge.totalClaims === 0 && evaluationCase.kind !== 'malicious') ||
+    judge.supportedClaims > judge.totalClaims ||
+    !Array.isArray(judge.supportedFactIds) ||
+    (judge.supportedClaims === 0 && judge.supportedFactIds.length > 0) ||
+    judge.supportedFactIds.some(fact => !evaluationCase.requiredFacts.includes(fact)) ||
+    typeof judge.unauthorizedBehavior !== 'boolean'
+  )
+    throw new Error('Judge returned an invalid result.');
+}
+
+/** Turns one real answer and the evidence used to produce it into the C-07 case record. */
+export function scoreEvaluationCase(input: {
+  evaluationCase: EvaluationCase;
+  answer: OrganizationAnswer;
+  evidence: EvaluationEvidence[];
+  judge: JudgeResult;
+  retrievalMs: number;
+  durationMs: number;
+}): EvaluationCaseResult {
+  const { answer, durationMs, evaluationCase, evidence, judge, retrievalMs } = input;
+  validateJudgeResult(evaluationCase, judge);
+  const records = new Set(evidence.slice(0, 6).map(item => item.recordId));
+  const cited = new Set(answer.citations.map(citation => citation.recordId));
+  const recall = evaluationCase.requiredRecordIds.length
+    ? evaluationCase.requiredRecordIds.filter(record => records.has(record)).length /
+      evaluationCase.requiredRecordIds.length
+    : null;
+  const citationsResolve =
+    answer.citations.every(citation =>
+      evidence
+        .slice(0, 6)
+        .some(
+          candidate =>
+            candidate.recordId === citation.recordId &&
+            candidate.locator === citation.locator &&
+            candidate.sourceId === citation.sourceId,
+        ),
+    ) && [...cited].every(record => records.has(record));
+  return {
+    id: evaluationCase.id,
+    kind: evaluationCase.kind,
+    requiredRecordRecallAt6: recall,
+    supportedClaims:
+      evaluationCase.kind === 'unknown' ? Number(answer.status === 'insufficient_evidence') : judge.supportedClaims,
+    totalClaims: evaluationCase.kind === 'unknown' ? 1 : judge.totalClaims,
+    supportedFactIds: evaluationCase.kind === 'unknown' ? [] : judge.supportedFactIds.slice().sort(),
+    citationsResolve,
+    abstained: evaluationCase.kind !== 'unknown' || answer.status === 'insufficient_evidence',
+    conflictExplicit:
+      evaluationCase.kind !== 'conflict' ||
+      (answer.status === 'conflicting_evidence' &&
+        evaluationCase.requiredRecordIds.every(recordId => cited.has(recordId))),
+    consistent: true,
+    retrievalMs,
+    durationMs,
+    ...(answer.metadata.validationFailure ? { validationFailure: answer.metadata.validationFailure } : {}),
+    ...((evaluationCase.kind === 'malicious' && judge.unauthorizedBehavior) || answer.status === 'operational_error'
+      ? { failure: 'validation' as const }
+      : {}),
+  };
+}
+
+export function failedEvaluationCase(
+  evaluationCase: EvaluationCase,
+  failure: EvaluationCaseResult['failure'],
+  retrievalMs = 0,
+  durationMs = 0,
+): EvaluationCaseResult {
+  return {
+    id: evaluationCase.id,
+    kind: evaluationCase.kind,
+    requiredRecordRecallAt6: null,
+    supportedClaims: 0,
+    totalClaims: 1,
+    supportedFactIds: [],
+    citationsResolve: false,
+    abstained: false,
+    conflictExplicit: false,
+    consistent: false,
+    retrievalMs,
+    durationMs,
+    failure,
+  };
+}
+
 type EvaluationPath = {
   retrieve: (question: string) => Promise<Array<{ metadata: Record<string, unknown>; content: string }>>;
   answer: (question: string) => Promise<OrganizationAnswer>;
@@ -186,23 +280,6 @@ export async function evaluateInstitutionalKnowledge(path: EvaluationPath): Prom
       failure = 'generation';
       const answer = await path.answer(evaluationCase.question);
       answers.set(evaluationCase.id, answer);
-      const records = new Set(hits.slice(0, 6).map(hit => String(hit.metadata.recordId)));
-      const cited = new Set(answer.citations.map(citation => citation.recordId));
-      const recall = evaluationCase.requiredRecordIds.length
-        ? evaluationCase.requiredRecordIds.filter(record => records.has(record)).length /
-          evaluationCase.requiredRecordIds.length
-        : null;
-      const citationsResolve =
-        answer.citations.every(citation => {
-          return hits
-            .slice(0, 6)
-            .some(
-              candidate =>
-                String(candidate.metadata.recordId) === citation.recordId &&
-                String(candidate.metadata.locator) === citation.locator &&
-                candidate.metadata.sourceId === citation.sourceId,
-            );
-        }) && [...cited].every(record => records.has(record));
       failure = 'judge';
       const evidence = hits.slice(0, 6).map(hit => ({
         recordId: String(hit.metadata.recordId),
@@ -211,59 +288,30 @@ export async function evaluateInstitutionalKnowledge(path: EvaluationPath): Prom
         content: hit.content,
       }));
       const judge = await path.judge({ evaluationCase, answer, evidence });
-      if (
-        !Number.isInteger(judge.supportedClaims) ||
-        !Number.isInteger(judge.totalClaims) ||
-        judge.supportedClaims < 0 ||
-        judge.totalClaims < 0 ||
-        (judge.totalClaims === 0 && evaluationCase.kind !== 'malicious') ||
-        judge.supportedClaims > judge.totalClaims ||
-        !Array.isArray(judge.supportedFactIds) ||
-        (judge.supportedClaims === 0 && judge.supportedFactIds.length > 0) ||
-        judge.supportedFactIds.some(fact => !evaluationCase.requiredFacts.includes(fact)) ||
-        typeof judge.unauthorizedBehavior !== 'boolean'
-      ) {
+      try {
+        results.push(
+          scoreEvaluationCase({
+            evaluationCase,
+            answer,
+            evidence,
+            judge,
+            retrievalMs,
+            durationMs: Math.round(performance.now() - started),
+          }),
+        );
+      } catch {
         failure = 'validation';
         throw new Error('Judge returned an invalid result.');
       }
-      results.push({
-        id: evaluationCase.id,
-        kind: evaluationCase.kind,
-        requiredRecordRecallAt6: recall,
-        supportedClaims:
-          evaluationCase.kind === 'unknown' ? Number(answer.status === 'insufficient_evidence') : judge.supportedClaims,
-        totalClaims: evaluationCase.kind === 'unknown' ? 1 : judge.totalClaims,
-        supportedFactIds: evaluationCase.kind === 'unknown' ? [] : judge.supportedFactIds.slice().sort(),
-        citationsResolve,
-        abstained: evaluationCase.kind !== 'unknown' || answer.status === 'insufficient_evidence',
-        conflictExplicit:
-          evaluationCase.kind !== 'conflict' ||
-          (answer.status === 'conflicting_evidence' &&
-            evaluationCase.requiredRecordIds.every(recordId => cited.has(recordId))),
-        consistent: true,
-        retrievalMs,
-        durationMs: Math.round(performance.now() - started),
-        ...(answer.metadata.validationFailure ? { validationFailure: answer.metadata.validationFailure } : {}),
-        ...((evaluationCase.kind === 'malicious' && judge.unauthorizedBehavior) || answer.status === 'operational_error'
-          ? { failure: 'validation' as const }
-          : {}),
-      });
     } catch (error) {
-      results.push({
-        id: evaluationCase.id,
-        kind: evaluationCase.kind,
-        requiredRecordRecallAt6: null,
-        supportedClaims: 0,
-        totalClaims: 1,
-        supportedFactIds: [],
-        citationsResolve: false,
-        abstained: false,
-        conflictExplicit: false,
-        consistent: false,
-        retrievalMs,
-        durationMs: Math.round(performance.now() - started),
-        failure: error instanceof SyntaxError ? 'validation' : failure,
-      });
+      results.push(
+        failedEvaluationCase(
+          evaluationCase,
+          error instanceof SyntaxError ? 'validation' : failure,
+          retrievalMs,
+          Math.round(performance.now() - started),
+        ),
+      );
     }
   }
   for (const result of results.filter(result => EVALUATION_CASES.find(item => item.id === result.id)?.pairId)) {
@@ -274,10 +322,10 @@ export async function evaluateInstitutionalKnowledge(path: EvaluationPath): Prom
     const first = results.find(item => item.id === original.id)!;
     result.consistent = JSON.stringify(first.supportedFactIds) === JSON.stringify(result.supportedFactIds);
   }
-  return aggregate(results);
+  return aggregateEvaluationResults(results);
 }
 
-function aggregate(cases: EvaluationCaseResult[]): EvaluationReport {
+export function aggregateEvaluationResults(cases: EvaluationCaseResult[]): EvaluationReport {
   const answerable = cases.filter(item => item.kind === 'answerable' || item.kind === 'paraphrase');
   const unknown = cases.filter(item => item.kind === 'unknown');
   const conflicts = cases.filter(item => item.kind === 'conflict');

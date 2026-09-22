@@ -1,10 +1,11 @@
-type ModelCall = { prompt: unknown; tools?: unknown };
+type ModelCall = { abortSignal?: AbortSignal; maxOutputTokens?: number; prompt: unknown; tools?: unknown };
 type FixtureOptions = {
   error?: Error | (() => Error);
   finishReason?: string;
   onCall?: (call: ModelCall) => void;
   textForCall?: (call: ModelCall) => string;
   usage?: unknown;
+  waitForAbort?: boolean;
 };
 
 export function fixedLanguageModel(text: string, options: FixtureOptions = {}) {
@@ -19,6 +20,15 @@ export function fixedLanguageModel(text: string, options: FixtureOptions = {}) {
       options.onCall?.(call);
       const error = errorForCall();
       if (error) throw error;
+      if (options.waitForAbort) {
+        await new Promise<void>((_resolve, reject) => {
+          if (call.abortSignal?.aborted) {
+            reject(call.abortSignal.reason);
+            return;
+          }
+          call.abortSignal?.addEventListener('abort', () => reject(call.abortSignal?.reason), { once: true });
+        });
+      }
       return {
         content: [{ type: 'text', text: textForCall(call) }],
         finishReason: options.finishReason ?? 'stop',
@@ -31,6 +41,15 @@ export function fixedLanguageModel(text: string, options: FixtureOptions = {}) {
       options.onCall?.(call);
       const error = errorForCall();
       if (error) throw error;
+      if (options.waitForAbort) {
+        await new Promise<void>((_resolve, reject) => {
+          if (call.abortSignal?.aborted) {
+            reject(call.abortSignal.reason);
+            return;
+          }
+          call.abortSignal?.addEventListener('abort', () => reject(call.abortSignal?.reason), { once: true });
+        });
+      }
       const responseText = textForCall(call);
       return {
         rawCall: { rawPrompt: null, rawSettings: {} },
