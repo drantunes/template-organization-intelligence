@@ -2,7 +2,7 @@ import { constants } from 'node:fs';
 import { access, stat } from 'node:fs/promises';
 import { isAbsolute, resolve } from 'node:path';
 
-import { loadCatalog, validateEnvironment } from '../src/catalog.ts';
+import { loadCatalog, validateEnvironment } from '../src/mastra/workspaces/catalog.ts';
 
 const catalogPath = resolve(process.cwd(), 'source-catalog.json');
 const stateDirectory = resolve(process.cwd(), '.mastra');

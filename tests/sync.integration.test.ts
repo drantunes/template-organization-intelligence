@@ -3,19 +3,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createClient } from '@libsql/client';
-import { Mastra } from '@mastra/core/mastra';
 import { LibSQLVector } from '@mastra/libsql';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createOrganizationApplication } from '../src/application.js';
-import type { SourceCatalog } from '../src/catalog.js';
-import { ScopedDriveReader } from '../src/drive-source.js';
-import { extractRecord, MAX_RECORD_BYTES } from '../src/extractors.js';
-import { SourceIndex } from '../src/source-index.js';
-import type { EmbeddingFunction } from '../src/source-index.js';
-import { createSourceRuntime } from '../src/sources.js';
+import type { SourceCatalog } from '../src/mastra/workspaces/catalog.js';
+import { ScopedDriveReader } from '../src/mastra/workspaces/drive-source.js';
+import { extractRecord, MAX_RECORD_BYTES } from '../src/mastra/workspaces/extractors.js';
+import type { EmbeddingFunction } from '../src/mastra/workspaces/source-index.js';
+import { SourceIndex } from '../src/mastra/workspaces/source-index.js';
+import { createSourceRuntime } from '../src/mastra/workspaces/sources.js';
+import { createOrganizationApplication } from './fixtures/application.js';
 
-import { docx, googleFixture, officeArchive, pdf, xlsx } from './record-fixtures.js';
+import { docx, googleFixture, officeArchive, pdf, xlsx } from './fixtures/records.js';
 
 const environment = {
   OPENAI_API_KEY: 'synthetic-key',
@@ -99,7 +98,7 @@ describe('synchronization integration', () => {
       embed,
       sources: await sources(),
     });
-    const mastra = new Mastra(app.config);
+    const mastra = app.mastra;
     cleanups.push(async () => {
       await mastra.stopWorkers();
       await app.close();
@@ -118,7 +117,7 @@ describe('synchronization integration', () => {
     vi.useRealTimers();
   }
 
-  it('scheduled_refresh_updates_changed_records_once', async () => {
+  it('scheduled refresh updates changed records once', async () => {
     await writeFile(join(local, 'policy.md'), '# Invoices\nRetain invoice records for seven years.');
     const app = await application();
     expect(app.index.lastRun()?.sources.map(source => source.indexed)).toEqual([1, 1]);
@@ -139,7 +138,7 @@ describe('synchronization integration', () => {
     expect(calls).toHaveLength(before);
   });
 
-  it('restart_and_overlap_preserve_search_consistency', async () => {
+  it('restart and overlap preserve search consistency', async () => {
     await writeFile(join(local, 'policy.md'), 'Original committed invoice evidence.');
     let release!: () => void;
     let entered!: () => void;
@@ -287,7 +286,7 @@ describe('synchronization integration', () => {
     client.close();
   });
 
-  it('reconcile_missing_records_only_after_complete_scan', async () => {
+  it('reconcile missing records only after complete scan', async () => {
     await writeFile(join(local, 'invoice.md'), 'Local invoice survives Drive outages.');
     let date = new Date('2026-01-01T00:00:00Z');
     const index = await openIndex({ now: () => date });
@@ -330,7 +329,7 @@ describe('synchronization integration', () => {
     expect(index.sourceStatus()[0]?.stale).toBe(true);
   });
 
-  it('reject_unsupported_and_oversized_records', async () => {
+  it('reject unsupported and oversized records', async () => {
     await writeFile(join(local, 'good.md'), 'Valid neighboring invoice evidence.');
     await writeFile(join(local, 'bad.bin'), 'unsupported');
     await writeFile(join(local, 'bad.pdf'), 'corrupt');
@@ -356,7 +355,7 @@ describe('synchronization integration', () => {
     ).rejects.toThrow('XML');
   });
 
-  it('real_documents_preserve_native_tabs_tables_and_provenance', async () => {
+  it('real documents preserve native tabs tables and provenance', async () => {
     await writeFile(join(local, 'policy.md'), '# Controls\n| Owner | Rule |\n| Records | Retain seven years |');
     await writeFile(join(local, 'rules.pdf'), pdf(['Text bearing page evidence.', 'Second page archive certificate.']));
     await writeFile(join(local, 'mixed.pdf'), pdf(['Mixed document visible text.', '']));
@@ -480,7 +479,19 @@ describe('synchronization integration', () => {
     ).rejects.toThrow('not discovered');
   });
 
-  it('new_local_file_becomes_searchable_without_restart', async () => {
+  it('native workbook accepts package root paths without allowing external or escaping targets', async () => {
+    const extracted = await extractRecord('native-export.xlsx', xlsx('/xl/worksheets/rules.xml'));
+    expect(extracted.chunks.find(chunk => chunk.locator === 'Details!A2:B2')?.text).toContain('eleven years');
+    expect(extracted.chunks.find(chunk => chunk.locator === 'Summary!A1:A1')?.text).toContain('Summary only');
+    for (const target of ['../../outside.xml', '/xl/worksheets/../../outside.xml', '//example.test/worksheet.xml']) {
+      await expect(extractRecord('native-export.xlsx', xlsx(target))).rejects.toThrow('escapes the workbook');
+    }
+    await expect(extractRecord('native-export.xlsx', xlsx('/xl/worksheets/rules.xml', 'External'))).rejects.toThrow(
+      'Unsupported worksheet relationship',
+    );
+  });
+
+  it('new local file becomes searchable without restart', async () => {
     const app = await application();
     expect(textOf(await app.index.search('new invoice'))).not.toContain('new invoice record');
     drive.setFailed(true);

@@ -9,10 +9,10 @@ import { LocalFilesystem } from '@mastra/core/workspace';
 import { GoogleDriveFilesystem } from '@mastra/google-drive';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import type { SourceCatalog } from '../src/catalog.js';
-import { loadCatalog, validateEnvironment } from '../src/catalog.js';
-import { createSourceRuntime } from '../src/sources.js';
-import { createSourceInspectionWorkflow } from '../src/workflows/source-inspection.js';
+import { createSourceInspectionWorkflow } from '../src/mastra/workflows/source-inspection.js';
+import type { SourceCatalog } from '../src/mastra/workspaces/catalog.js';
+import { loadCatalog, validateEnvironment } from '../src/mastra/workspaces/catalog.js';
+import { createSourceRuntime } from '../src/mastra/workspaces/sources.js';
 
 const testEnvironment = {
   OPENAI_API_KEY: 'test-openai-key',
@@ -128,7 +128,7 @@ describe('source integration', () => {
     return { sample, policies, processes };
   }
 
-  it('mounts_preserve_source_identity', async () => {
+  it('mounts preserve source identity', async () => {
     await prepareSources();
     installGoogleDriveResponses();
     const driveOptions: Array<{ readOnly?: boolean; getAccessToken?: unknown }> = [];
@@ -164,7 +164,7 @@ describe('source integration', () => {
     ]);
   });
 
-  it('reject_invalid_mount_configuration', async () => {
+  it('reject invalid mount configuration', async () => {
     const roots = await prepareSources();
     const ledgerPath = join(directory, 'state', 'ledger.json');
     const invalid = catalog({
@@ -263,7 +263,7 @@ describe('source integration', () => {
     expect((await runtime.inspect('sample', 'overview.md')).status).toBe('available');
   });
 
-  it('reject_paths_outside_configured_mounts', async () => {
+  it('reject paths outside configured mounts', async () => {
     const roots = await prepareSources();
     const outside = join(directory, 'secret.txt');
     await writeFile(outside, 'do-not-disclose');
@@ -289,7 +289,7 @@ describe('source integration', () => {
     expect((await lstat(join(roots.sample, 'outside-link'))).isSymbolicLink()).toBe(true);
   });
 
-  it('check_env_rejects_unusable_local_state_locations_without_writing', async () => {
+  it('check env rejects unusable local state locations without writing', async () => {
     const roots = await prepareSources();
     await writeFile(
       join(directory, 'source-catalog.json'),
@@ -322,7 +322,7 @@ describe('source integration', () => {
     expect(await readFile(join(roots.sample, 'overview.md'), 'utf8')).toContain('records office');
   });
 
-  it('file_catalog_supports_multiple_drive_folders', async () => {
+  it('file catalog supports multiple Drive folders', async () => {
     const roots = await prepareSources();
     const ledgerPath = join(directory, 'state', 'ledger.json');
     const factory = localDriveFactory({ 'folder-policies': roots.policies, 'folder-processes': roots.processes });
@@ -440,7 +440,7 @@ describe('source integration', () => {
     expect((await secondConstructor.inspect('constructor', 'guide.md')).status).toBe('available');
   });
 
-  it('runs_the_source_inspection_workflow_and_sanitizes_drive_denial', async () => {
+  it('runs the source inspection workflow and sanitizes Drive denial', async () => {
     await prepareSources();
     const localCatalog = catalog({
       sources: [{ id: 'sample', provider: 'local', mountPath: '/sample', root: './sample', enabled: true }],

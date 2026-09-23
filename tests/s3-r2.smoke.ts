@@ -5,16 +5,13 @@ import { dirname, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
 
-import {
-  askOrganizationAgent,
-  createOrganizationAgent,
-  createOrganizationAnswerRoute,
-  createOrganizationMcpServer,
-} from '../src/answers.js';
-import { loadCatalog, sourceIdentity, validateEnvironment } from '../src/catalog.js';
-import { assertIsolatedEvaluationState, operationalEvaluationExclusions } from '../src/experiments.js';
-import { SourceIndex } from '../src/source-index.js';
-import { createSourceRuntime } from '../src/sources.js';
+import { askOrganizationAgent, createOrganizationAgent } from '../src/mastra/agents/organization-agent.js';
+import { createOrganizationAnswerRoute } from '../src/mastra/api/organization.js';
+import { assertIsolatedEvaluationState, operationalEvaluationExclusions } from '../src/mastra/evaluation/state.js';
+import { createOrganizationMcpServer } from '../src/mastra/mcp/organization.js';
+import { loadCatalog, sourceIdentity, validateEnvironment } from '../src/mastra/workspaces/catalog.js';
+import { SourceIndex } from '../src/mastra/workspaces/source-index.js';
+import { createSourceRuntime } from '../src/mastra/workspaces/sources.js';
 
 const fixtureSchema = z.object({
   catalogPath: z.string().min(1),

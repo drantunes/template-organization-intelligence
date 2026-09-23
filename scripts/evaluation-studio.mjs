@@ -13,7 +13,7 @@ const { values } = parseArgs({
 if (!values['state-dir'] || values['state-dir'].startsWith('-'))
   throw new Error('Pass --state-dir <isolated experiment directory>.');
 
-const child = spawn('pnpm', ['exec', 'mastra', 'dev', '--dir', 'src/evaluation-studio'], {
+const child = spawn('npm', ['exec', '--', 'mastra', 'dev', '--dir', 'src/mastra/evaluation/studio'], {
   env: { ...process.env, ORGANIZATION_EVALUATION_STATE_DIR: resolve(values['state-dir']) },
   stdio: 'inherit',
 });
