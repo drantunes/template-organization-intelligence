@@ -33,6 +33,7 @@ function studioPresentation(result: OrganizationAnswer): string {
     insufficient_evidence: 'Insufficient evidence',
     conflicting_evidence: 'Conflicting evidence',
     operational_error: 'Operational error',
+    clarification_required: 'Clarification required',
   }[result.status];
   const lines = [`**Status:** ${status}`, '', markdownText(result.answer)];
   if (result.citations.length) lines.push('', '**Citations**', ...result.citations.map(markdownCitation));

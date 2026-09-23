@@ -68,11 +68,13 @@ Studio renders a readable answer and citations; HTTP and MCP preserve the struct
 
 ## Operations
 
+Studio conversations persist in the configured Mastra storage. Reopen the same chat to continue with its history; the agent includes the last 20 messages in its context. Follow-up questions use recent conversation history to form a standalone document search query. The original question stays in the chat. If the reference is ambiguous, the agent asks for clarification; if contextualization fails, it searches with the original question. This adds one model call for questions with conversation history. See [Mastra memory](https://mastra.ai/docs/memory/overview) for configuration options. The custom HTTP and MCP endpoints continue to handle independent questions. Clarification responses use `clarification_required` with no citations.
+
 Synchronization runs once at startup, manually on demand, and every five minutes while the server is running. Failed remote scans retain the last committed evidence with a stale warning; only complete scans can remove missing indexed records. Keep a source ID bound to the same provider and root. Disabling a source and restarting excludes its cached evidence.
 
 `GET http://localhost:4111/organization-telemetry` returns seven days of metadata-only sync counts, question outcomes, retrieval timing, source use, and reported tokens. Unavailable usage or monetary cost stays unavailable. It does not store question text, answer bodies, document excerpts, or credentials, and no external trace exporter is configured.
 
-Derived state lives in `.mastra/organization-intelligence.db`. For an intentional rebuild, stop every instance and remove only that file, `.mastra/organization-intelligence.db-wal`, `.mastra/organization-intelligence.db-shm`, and `.mastra/source-identities.json`. Restart with `npm run dev`. Preserve `.env`, `source-catalog.json`, and all source documents. Rebuilding requires a new scan and paid embeddings. Hosted persistence requires a separately verified adaptation.
+Application state, including chat history and the document index, lives in `.mastra/organization-intelligence.db`. For an intentional full reset, stop every instance and remove only that file, `.mastra/organization-intelligence.db-wal`, `.mastra/organization-intelligence.db-shm`, and `.mastra/source-identities.json`. This also deletes saved conversations. Restart with `npm run dev`. Preserve `.env`, `source-catalog.json`, and all source documents. Rebuilding requires a new scan and paid embeddings. Hosted persistence requires a separately verified adaptation.
 
 ## About Mastra templates
 

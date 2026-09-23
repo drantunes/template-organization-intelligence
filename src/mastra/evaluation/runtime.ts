@@ -43,6 +43,7 @@ function nativeExperimentAgent(
   providerTimeoutMs: number,
 ) {
   const agent = createOrganizationAgent(index, model, {
+    memory: false,
     maxRetries: 0,
     modelTimeout: { totalMs: providerTimeoutMs, stepMs: providerTimeoutMs, firstChunkMs: providerTimeoutMs },
     onGroundedAnswer,

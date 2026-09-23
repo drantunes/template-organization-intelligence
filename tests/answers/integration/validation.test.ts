@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { askOrganizationAgent, createOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
+import { askOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
 import type { SourceIndex } from '../../../src/mastra/workspaces/source-index.js';
+import { createStatelessOrganizationAgent as createOrganizationAgent } from '../../fixtures/agent.js';
 import { hits, sourceStatus } from '../../fixtures/answers.js';
 import { fixedLanguageModel } from '../../fixtures/model.js';
 import { index } from './helpers/runtime.js';

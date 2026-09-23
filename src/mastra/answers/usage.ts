@@ -22,3 +22,15 @@ export function reportedUsage(
     ? 'unavailable'
     : { inputTokens, outputTokens, totalTokens };
 }
+
+/** Report the total only when both model calls returned usage. */
+export function combinedUsage(first: ReturnType<typeof reportedUsage>, second: ReturnType<typeof reportedUsage>) {
+  if (first === 'unavailable' || second === 'unavailable') return 'unavailable' as const;
+  const sum = (a: number | undefined, b: number | undefined) =>
+    a === undefined || b === undefined ? undefined : a + b;
+  return {
+    inputTokens: sum(first.inputTokens, second.inputTokens),
+    outputTokens: sum(first.outputTokens, second.outputTokens),
+    totalTokens: sum(first.totalTokens, second.totalTokens),
+  };
+}

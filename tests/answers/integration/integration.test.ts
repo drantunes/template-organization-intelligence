@@ -1,6 +1,6 @@
 import { Mastra } from '@mastra/core/mastra';
 import { describe, expect, it } from 'vitest';
-import { createOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
+import { createStatelessOrganizationAgent as createOrganizationAgent } from '../../fixtures/agent.js';
 import { studioUserSignal } from '../../fixtures/answers.js';
 import { fixedLanguageModel } from '../../fixtures/model.js';
 import { index } from './helpers/runtime.js';

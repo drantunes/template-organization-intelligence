@@ -4,12 +4,13 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { askOrganizationAgent, createOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
+import { askOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
 import type { OrganizationAnswer } from '../../../src/mastra/answers/schema.js';
 import { evaluateInstitutionalKnowledge } from '../../../src/mastra/evaluation/evaluation.js';
 import { EVALUATION_CASES } from '../../../src/mastra/evaluation/fixtures/cases.js';
 import { createEvaluationRuntime } from '../../../src/mastra/evaluation/fixtures/runtime.js';
 import { SourceIndex } from '../../../src/mastra/workspaces/source-index.js';
+import { createStatelessOrganizationAgent as createOrganizationAgent } from '../../fixtures/agent.js';
 import { answerFor } from '../../fixtures/answer.js';
 import { fixedLanguageModel } from '../../fixtures/model.js';
 

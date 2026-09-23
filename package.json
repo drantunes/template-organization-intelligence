@@ -25,7 +25,8 @@
     "check": "npm run format:check && npm run lint:oxlint && npm run lint:eslint && npm run typecheck && npm test && npm run build",
     "test:integration": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run --config vitest.live.config.ts",
     "test:s3-r2:smoke": "node --env-file-if-exists=.env node_modules/vitest/vitest.mjs run --config vitest.s3-r2.config.ts",
-    "eval": "tsc -p tsconfig.eval.json && node --env-file-if-exists=.env build/eval/mastra/evaluation/eval-runner.js"
+    "eval": "tsc -p tsconfig.eval.json && node --env-file-if-exists=.env build/eval/mastra/evaluation/eval-runner.js",
+    "eval:conversations": "tsc -p tsconfig.eval.json && node --env-file-if-exists=.env build/eval/mastra/evaluation/conversation-query-runner.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "3.1095.0",
@@ -35,6 +36,7 @@
     "@mastra/google-drive": "0.2.1",
     "@mastra/libsql": "1.23.0",
     "@mastra/mcp": "1.18.0",
+    "@mastra/memory": "1.30.0",
     "@mastra/s3": "0.6.3",
     "fast-xml-parser": "5.11.1",
     "google-auth-library": "11.1.0",

@@ -37,7 +37,13 @@ const validationFailureSchema = z.enum([
 ]);
 
 export const organizationAnswerSchema = z.object({
-  status: z.enum(['answered', 'insufficient_evidence', 'conflicting_evidence', 'operational_error']),
+  status: z.enum([
+    'answered',
+    'insufficient_evidence',
+    'conflicting_evidence',
+    'clarification_required',
+    'operational_error',
+  ]),
   answer: z.string().max(MAX_OUTPUT_CHARACTERS),
   citations: z.array(citationSchema).max(6),
   sourceStatus: z.array(sourceStatusSchema),
@@ -58,6 +64,10 @@ export type GroundedAnswerObservation = {
 
 export type Evidence = z.infer<typeof citationSchema> & { excerpt: string };
 export type ProcessorState = {
+  searchQuery?: string;
+  clarification?: string;
+  contextualizationAttempted?: boolean;
+  contextualizationUsage?: unknown;
   evidence?: Evidence[];
   sourceStatus?: SourceStatus[];
   promptSourceStatus?: SourceStatus[];

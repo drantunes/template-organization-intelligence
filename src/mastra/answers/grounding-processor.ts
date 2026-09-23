@@ -1,9 +1,11 @@
 import type { InputProcessor, OutputProcessor } from '@mastra/core/processors';
 import type { ChunkType } from '@mastra/core/stream';
 import type { SourceIndex } from '../workspaces/source-index.js';
+import { clarificationAnswer, clarificationResponse } from './clarification.js';
 import { evidencePrompt } from './evidence.js';
 import { recordAnswerObservation, recordAnswerTelemetry } from './observation.js';
 import { presentedResult, textDelta } from './presentation.js';
+import type { QueryContextualizer } from './query-context.js';
 import { prepareGrounding } from './retrieval.js';
 import type { GroundingOptions, OrganizationAnswer, ProcessorState } from './schema.js';
 import { safeOperationalResult, validatedResult } from './validation.js';
@@ -13,6 +15,7 @@ export type { GroundingOptions } from './schema.js';
 type FinalPart = Extract<ChunkType, { type: 'finish' | 'error' }>;
 
 function finalAnswer(part: FinalPart, state: ProcessorState): OrganizationAnswer {
+  if (state.clarification) return clarificationAnswer(state);
   if (part.type === 'error') {
     state.validationFailure = 'provider_failure';
     return safeOperationalResult(state);
@@ -57,22 +60,34 @@ const sanitizeErrors: NonNullable<OutputProcessor['processOutputStep']> = ({ mes
     };
   });
 
-export function createGroundingProcessor(index: SourceIndex, options: GroundingOptions = {}) {
+export function createGroundingProcessor(
+  index: SourceIndex,
+  options: GroundingOptions = {},
+  contextualize?: QueryContextualizer,
+) {
   const processor: InputProcessor & OutputProcessor = {
     id: 'organization-grounding',
-    processInput: async ({ messages, state, systemMessages }) => {
+    processInput: async ({ messages, state, systemMessages, abortSignal }) => {
       const processorState = state as ProcessorState;
-      await prepareGrounding(index, messages, processorState);
+      await prepareGrounding(index, messages, processorState, contextualize, abortSignal);
       return {
         messages,
         systemMessages: [
           ...systemMessages,
           {
             role: 'system',
-            content: evidencePrompt(processorState.evidence ?? [], processorState.promptSourceStatus ?? []),
+            content: evidencePrompt(
+              processorState.evidence ?? [],
+              processorState.promptSourceStatus ?? [],
+              processorState.searchQuery,
+            ),
           },
         ],
       };
+    },
+    processLLMRequest: ({ state }) => {
+      const processorState = state as ProcessorState;
+      if (processorState.clarification) return { response: clarificationResponse(processorState) };
     },
     processInputStep: async ({ modelSettings }) => ({
       modelSettings: { ...modelSettings, maxOutputTokens: 4_096 },

@@ -1,6 +1,6 @@
 import type { SourceIndex } from '../workspaces/source-index.js';
 import type { GroundingOptions, OrganizationAnswer, ProcessorState } from './schema.js';
-import { reportedUsage } from './usage.js';
+import { combinedUsage, reportedUsage } from './usage.js';
 
 export function recordAnswerObservation(result: OrganizationAnswer, state: ProcessorState, options: GroundingOptions) {
   if (state.observationRecorded) return;
@@ -24,7 +24,13 @@ export async function recordAnswerTelemetry(
   rawUsage?: unknown,
   finalUsage: boolean = false,
 ): Promise<void> {
-  const usage = reportedUsage(rawUsage);
+  const answerUsage = reportedUsage(rawUsage);
+  const contextualizationUsage = reportedUsage(state.contextualizationUsage);
+  const usage = state.clarification
+    ? contextualizationUsage
+    : state.contextualizationAttempted
+      ? combinedUsage(answerUsage, contextualizationUsage)
+      : answerUsage;
   if (!state.usageReported && usage !== 'unavailable') {
     state.usageReported = true;
     options.onGroundedUsage?.(usage);

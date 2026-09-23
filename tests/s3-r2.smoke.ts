@@ -179,6 +179,7 @@ describe('explicit simultaneous Drive/R2 smoke', () => {
         ]),
       );
       const agent = createOrganizationAgent(index, 'openai/gpt-5.6-terra', {
+        memory: false,
         maxRetries: 0,
         onGroundedUsage: item => usage.push(item ?? 'unavailable'),
       });

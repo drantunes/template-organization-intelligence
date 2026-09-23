@@ -5,9 +5,10 @@ import { join } from 'node:path';
 import { Mastra } from '@mastra/core/mastra';
 import { describe, expect, it } from 'vitest';
 
-import { askOrganizationAgent, createOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
+import { askOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
 import { createOrganizationAnswerRoute } from '../../../src/mastra/api/organization.js';
 import { createOrganizationMcpServer } from '../../../src/mastra/mcp/organization.js';
+import { createStatelessOrganizationAgent as createOrganizationAgent } from '../../fixtures/agent.js';
 import { fixedLanguageModel } from '../../fixtures/model.js';
 import { googleFixture } from '../../fixtures/records.js';
 import { s3Fixture } from '../../fixtures/s3.js';

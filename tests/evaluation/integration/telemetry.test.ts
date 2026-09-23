@@ -4,13 +4,14 @@ import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
-import { askOrganizationAgent, createOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
+import { askOrganizationAgent } from '../../../src/mastra/agents/organization-agent.js';
 import {
   createOrganizationAnswerRoute,
   createOrganizationTelemetryRoute,
 } from '../../../src/mastra/api/organization.js';
 import { createEvaluationRuntime } from '../../../src/mastra/evaluation/fixtures/runtime.js';
 import { TELEMETRY_RETENTION_MS } from '../../../src/mastra/telemetry.js';
+import { createStatelessOrganizationAgent as createOrganizationAgent } from '../../fixtures/agent.js';
 import { createOrganizationApplication } from '../../fixtures/application.js';
 import { fixedLanguageModel } from '../../fixtures/model.js';
 

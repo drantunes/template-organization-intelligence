@@ -6,7 +6,12 @@ export const TELEMETRY_RETENTION_MS = 7 * 86_400_000;
 
 export type QueryTelemetry = {
   correlationId: string;
-  status: 'answered' | 'insufficient_evidence' | 'conflicting_evidence' | 'operational_error';
+  status:
+    | 'answered'
+    | 'insufficient_evidence'
+    | 'conflicting_evidence'
+    | 'clarification_required'
+    | 'operational_error';
   retrievalMs: number;
   durationMs: number;
   sourceIds: string[];
@@ -34,6 +39,7 @@ export type TelemetrySummary = {
   insufficientEvidence: number;
   unansweredRate: number;
   operationalErrors: number;
+  clarificationRequests: number;
   averageRetrievalMs: number;
   sourceUtilization: Record<string, number>;
   usage: 'unavailable' | 'partial' | { inputTokens: number; outputTokens: number; totalTokens: number };
@@ -85,7 +91,9 @@ export class TelemetryStore {
       this.#client.execute('SELECT data FROM oi_runs ORDER BY finished_at ASC'),
     ]);
     const events = queries.rows.map(row => JSON.parse(String(row.data)) as QueryTelemetry);
-    const completed = events.filter(event => event.status !== 'operational_error');
+    const completed = events.filter(
+      event => event.status !== 'operational_error' && event.status !== 'clarification_required',
+    );
     const unanswered = completed.filter(event => event.status === 'insufficient_evidence').length;
     const sources: Record<string, number> = {};
     for (const event of events)
@@ -102,7 +110,8 @@ export class TelemetryStore {
       completedQuestions: completed.length,
       insufficientEvidence: unanswered,
       unansweredRate: completed.length ? unanswered / completed.length : 0,
-      operationalErrors: events.length - completed.length,
+      operationalErrors: events.filter(event => event.status === 'operational_error').length,
+      clarificationRequests: events.filter(event => event.status === 'clarification_required').length,
       averageRetrievalMs: events.length
         ? events.reduce((total, event) => total + event.retrievalMs, 0) / events.length
         : 0,

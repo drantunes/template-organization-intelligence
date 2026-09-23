@@ -46,11 +46,20 @@ describe('Evaluation integration', () => {
               .join('\n')
               .split('\n')
               .find(line => line.includes('"evidence"'));
-            const evidence = JSON.parse(evidenceLine!).evidence as Array<{ recordId: string; locator: string }>;
+            const evidence = JSON.parse(evidenceLine!).evidence as Array<{
+              recordId: string;
+              locator: string;
+              path: string;
+              excerpt: string;
+            }>;
+            const retention = evidence.find(
+              hit => hit.path === '/sample/records-retention.md' && hit.excerpt.includes('seven years'),
+            );
+            expect(retention).toBeDefined();
             return JSON.stringify({
               status: 'answered',
               answer: 'Retain approved invoices for seven years after the end of the fiscal year.',
-              citations: evidence.slice(0, 1).map(({ recordId, locator }) => ({ recordId, locator })),
+              citations: [{ recordId: retention!.recordId, locator: retention!.locator }],
             });
           },
         }) as never,
