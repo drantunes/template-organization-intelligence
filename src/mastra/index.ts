@@ -35,6 +35,11 @@ export const mastra = new Mastra({
   mcpServers: { organizationIntelligence: mcpServer },
   server: {
     host: '127.0.0.1',
+    cors: {
+      // Studio includes credentials when localhost connects to the loopback API.
+      origin: origin => (/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin) ? origin : undefined),
+      credentials: true,
+    },
     apiRoutes: [createOrganizationAnswerRoute(organizationAgent), createOrganizationTelemetryRoute(index)],
   },
   workers: [new InitialSynchronization(index, storage, sourceSyncWorkflow)],
