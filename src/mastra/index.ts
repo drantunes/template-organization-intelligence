@@ -11,9 +11,13 @@ import { createSourceInspectionWorkflow } from './workflows/source-inspection.js
 import { createSourceSearchWorkflow } from './workflows/source-search.js';
 import { createSourceSyncWorkflow } from './workflows/source-sync.js';
 
-const { index, storage, sources } = await createOrganizationApplication({
+const application = await createOrganizationApplication({
   projectRoot: fileURLToPath(new URL('../../', import.meta.url)),
 });
+// Mastra's CLI config extraction requires identifier bindings instead of top-level destructuring.
+const index = application.index;
+const storage = application.storage;
+const sources = application.sources;
 const organizationAgent = createOrganizationAgent(index);
 const sourceSyncWorkflow = createSourceSyncWorkflow(index);
 const mcpServer = createOrganizationMcpServer(organizationAgent);

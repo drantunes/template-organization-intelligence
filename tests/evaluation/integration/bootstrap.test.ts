@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { chmod, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -9,6 +9,44 @@ import { describe, expect, it } from 'vitest';
 
 const command = promisify(execFile);
 describe('Evaluation integration', () => {
+  it('extracts the real entrypoint server configuration before starting Mastra', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'organization-server-config-'));
+    const projectRoot = fileURLToPath(new URL('../../../', import.meta.url));
+    try {
+      await cp(join(projectRoot, 'src'), join(directory, 'src'), { recursive: true });
+      await cp(join(projectRoot, 'package.json'), join(directory, 'package.json'));
+      await symlink(join(projectRoot, 'node_modules'), join(directory, 'node_modules'), 'dir');
+      await mkdir(join(directory, 'documents'));
+      await mkdir(join(directory, '.mastra/output'), { recursive: true });
+      await writeFile(
+        join(directory, 'source-catalog.json'),
+        JSON.stringify({
+          version: 1,
+          sources: [{ id: 'sample', provider: 'local', mountPath: '/sample', root: './documents', enabled: true }],
+        }),
+      );
+      const { stdout } = await command(
+        process.execPath,
+        [
+          '--input-type=module',
+          '--eval',
+          `import { getServerOptions } from '@mastra/deployer/build';
+          const server = await getServerOptions(
+            process.cwd() + '/src/mastra/index.ts', process.cwd() + '/.mastra/output'
+          );
+          console.log(JSON.stringify({ host: server.host, routes: server.apiRoutes.map(route => route.path) }));`,
+        ],
+        { cwd: directory, env: { PATH: process.env.PATH, OPENAI_API_KEY: 'synthetic-key' }, timeout: 12000 },
+      );
+      expect(JSON.parse(stdout.trim())).toEqual({
+        host: '127.0.0.1',
+        routes: ['/organization-answer', '/organization-telemetry'],
+      });
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it('local bootstrap and checks are reproducible', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'organization-bootstrap-'));
     const bin = join(directory, 'bin');
