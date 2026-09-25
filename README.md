@@ -1,19 +1,24 @@
 # Organization Intelligence
 
-A company’s knowledge rarely lives in one place. Policies might be in Google Drive, reports in an S3 bucket, and PDFs or spreadsheets on a local system. Organization intelligence brings that scattered knowledge into reach: people can ask a question about their company and get an answer backed by its documents, with citations they can follow.
-
-This starter kit shows how to build that experience with Mastra. It connects local files, Google Drive, and S3-compatible storage through a shared Workspace, then indexes the documents so you can ask questions across them. Start with the included sample documents, connect your own sources, and adapt the providers, document formats, and workflows to the way your company works.
+Organization Intelligence answers company questions using documents from local folders, Google Drive, and S3-compatible storage. It indexes Markdown, text-bearing PDFs, DOCX, and native Google Docs and Sheets, then returns answers with citations and source freshness through Mastra Studio, HTTP, or MCP.
 
 ## Why we built this
 
-Finding an answer often starts with another question: where is the right document? Even when you find it, you may need to check another source or work out which version is current. We built this template to make that process easier, while keeping the source and freshness of each result visible so people can check the answer and spot outdated or conflicting information.
+Finding a policy or reconciling conflicting documents often means searching several systems. We built this template to reduce that work while keeping answers traceable, so users can check the supporting evidence and see when a source is out of date.
 
-You can use the same search and answer flow in Mastra Studio, over HTTP, or through MCP. The template supports Markdown, text-bearing PDFs, DOCX, and native Google Docs and Sheets, and gives you a starting point for adding the formats and integrations your team needs.
+## Demo
+
+<video controls width="640" height="360" src="https://res.cloudinary.com/mastra-assets/video/upload/v1790332288/organization_inteligence_template_wo7ycp.mp4"></video>
+
+This demo runs in Mastra Studio, HTTP API or via MCP, but you can connect this workflow to your React, Next.js, or Vue app using the Mastra Client SDK or agentic UI libraries like AI SDK UI, CopilotKit, or Assistant UI.
 
 ## Prerequisites
 
 - **[OpenAI API key](https://platform.openai.com/api-keys)**: set `OPENAI_API_KEY` in `.env`. This is the only credential needed for the default local setup. Normalized text and query embeddings use `text-embedding-3-small`; questions and retrieved excerpts go to `gpt-5.6-terra`. These operations incur provider usage.
-- **Optional remote sources**: follow the [Mastra Google Drive setup](https://mastra.ai/integrations/file-storage/google-drive#service-account) or [Mastra S3 and Cloudflare R2 setup](https://mastra.ai/integrations/file-storage/amazon-s3). Both integrations are already installed. Keep the template-specific settings described below.
+- **[Google Drive credentials (optional)](https://mastra.ai/integrations/file-storage/google-drive#service-account)**: set `GOOGLE_DRIVE_CLIENT_EMAIL` and `GOOGLE_DRIVE_PRIVATE_KEY` in `.env` using `client_email` and `private_key` from the service account JSON key. Quote the private key and preserve its escaped `\n` line breaks. Share the source folder with the service account as a Viewer. Enable the Google Drive API and, for native document tabs, the Google Docs API in the service account's project.
+- **[S3 / Cloudflare R2 credentials (optional)](https://mastra.ai/integrations/file-storage/amazon-s3)**: set `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` in `.env` using the provider's access key ID and secret access key. Allow listing and reading the configured bucket or prefix. For R2, use Object Read credentials scoped to the bucket.
+
+Remote credentials are needed only when the corresponding source is enabled. Keep folder IDs and storage settings in `source-catalog.json`, as described in [Optional remote sources](#optional-remote-sources).
 
 ## Quickstart 🚀
 
@@ -43,14 +48,14 @@ You can use the same search and answer flow in Mastra Studio, over HTTP, or thro
 
 ## Optional remote sources
 
-Follow the official [Google Drive integration](https://mastra.ai/integrations/file-storage/google-drive) or [Amazon S3 integration](https://mastra.ai/integrations/file-storage/amazon-s3) guide for provider authentication and access setup. The [filesystem mounts walkthrough](https://mastra.ai/blog/introducing-filesystem-mounts) explains how the providers share one Workspace.
+Both integrations are already installed. After configuring the credentials in [Prerequisites](#prerequisites), copy the relevant entries from `source-catalog.example.json` into `source-catalog.json`, fill in the source details, and set `enabled` to `true`:
 
-Both integrations are already installed. Copy the relevant entries from `source-catalog.example.json` into `source-catalog.json`, fill in the source details, and set `enabled` to `true`. This template uses these settings:
-
-- **Google Drive:** set `GOOGLE_DRIVE_CLIENT_EMAIL` and `GOOGLE_DRIVE_PRIVATE_KEY` in `.env`; set `folderId` in the catalog. Share the folder with the service account as a Viewer. Enable the Docs API for native document tabs.
-- **S3 / R2:** set `S3_ACCESS_KEY_ID` and `S3_SECRET_ACCESS_KEY` in `.env`; set `bucket`, `endpoint`, `region`, and `prefix` in the catalog. For R2, use the HTTPS account endpoint and `region: "auto"`, with Object Read credentials scoped to the bucket.
+- **Google Drive:** set `folderId` to the ID of the shared source folder.
+- **S3 / R2:** set `bucket`, `endpoint`, `region`, and `prefix`. For R2, use the HTTPS account endpoint and `region: "auto"`.
 
 Restart with `npm run dev` after changing the catalog. Local, Drive, and S3 sources can remain enabled together. Source access is read-only; OCR is not included.
+
+The [filesystem mounts walkthrough](https://mastra.ai/blog/introducing-filesystem-mounts) explains how the providers share one Workspace.
 
 ## API and MCP
 
@@ -78,6 +83,6 @@ Application state, including chat history and the document index, lives in `.mas
 
 ## About Mastra templates
 
-Mastra templates are starting points you can run, explore, and adapt to your own projects. This template follows the [Mastra template structure](https://mastra.ai/reference/templates/overview) and combines agents, workflows, and Workspace mounts to answer questions across company documents.
+This is an official [Mastra template](https://mastra.ai/reference/templates/overview), a starting point you can run, explore, and adapt to your own projects.
 
 Want to contribute? See [CONTRIBUTING.md](https://github.com/drantunes/template-organization-intelligence/blob/main/CONTRIBUTING.md) for setup, checks, and pull request guidance.
